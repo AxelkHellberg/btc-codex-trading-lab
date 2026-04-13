@@ -1,0 +1,18 @@
+[Unit]
+Description=BTC Codex Trading Lab
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/btc-codex-trading-lab
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/btc-codex-trading-lab/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=10
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,59 @@
+{
+  "name": "btc-codex-trading-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safety-first BTC futures research platform with Codex-driven signals, deterministic risk controls, and paper/live execution paths.",
+  "keywords": [
+    "typescript",
+    "nodejs",
+    "openai",
+    "codex",
+    "fastify",
+    "postgresql",
+    "redis",
+    "paper-trading",
+    "algorithmic-trading",
+    "binance"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AxelkHellberg/btc-codex-trading-lab.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AxelkHellberg/btc-codex-trading-lab/issues"
+  },
+  "homepage": "https://github.com/AxelkHellberg/btc-codex-trading-lab#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "backtest": "tsx src/scripts/backtest.ts",
+    "doctor": "tsx src/scripts/doctor.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.118.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "rss-parser": "^3.13.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/pg": "^8.11.11",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}
