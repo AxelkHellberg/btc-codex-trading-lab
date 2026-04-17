@@ -39,7 +39,7 @@
   "dependencies": {
     "@openai/codex-sdk": "^0.118.0",
     "dotenv": "^16.4.7",
-    "fastify": "^5.2.1",
+    "fastify": "^5.8.5",
     "ioredis": "^5.4.2",
     "pg": "^8.13.3",
     "pino": "^9.6.0",
