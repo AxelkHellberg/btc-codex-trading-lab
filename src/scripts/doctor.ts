@@ -21,9 +21,40 @@ const run = async (command: string, args: string[]): Promise<{ code: number; std
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
 
+const runCodexStatus = async (): Promise<{ code: number; stdout: string; stderr: string }> => {
+  const commands: Array<{ command: string; args: string[] }> = [
+    { command: "codex", args: ["login", "status"] },
+    { command: "npx", args: ["@openai/codex", "login", "status"] }
+  ];
+
+  for (const candidate of commands) {
+    try {
+      const result = await run(candidate.command, candidate.args);
+      if (result.code === 0 || !result.stderr.includes("could not determine executable to run")) {
+        return result;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return {
+    code: 1,
+    stdout: "",
+    stderr: "Codex CLI not found in PATH and npx fallback was unavailable"
+  };
+};
+
 const main = async (): Promise<void> => {
   const pg = new Client({ connectionString: config.postgresUrl });
-  const redis = new Redis(config.redisUrl);
+  const redis = new Redis(config.redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null
+  });
+  redis.on("error", () => undefined);
   let postgres = "down";
   let redisState = "down";
   let app = "down";
@@ -40,6 +71,7 @@ const main = async (): Promise<void> => {
   }
 
   try {
+    await redis.connect();
     redisState = (await redis.ping()) === "PONG" ? "ok" : "down";
   } catch {
     redisState = "down";
@@ -72,7 +104,7 @@ const main = async (): Promise<void> => {
     telegram_present: Boolean(config.telegram.botToken && config.telegram.chatId)
   };
 
-  const codexStatus = await run("npx", ["@openai/codex", "login", "status"]);
+  const codexStatus = await runCodexStatus();
   logger.info(
     {
       checks,
