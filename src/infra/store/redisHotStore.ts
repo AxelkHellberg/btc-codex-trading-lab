@@ -1,6 +1,13 @@
 import { Redis } from "ioredis";
 import type { Logger } from "pino";
 
+const RELEASE_LOCK_SCRIPT = `
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+  end
+  return 0
+`;
+
 export class RedisHotStore {
   private readonly redis: Redis;
 
@@ -28,10 +35,7 @@ export class RedisHotStore {
   }
 
   public async releaseLock(key: string, token: string): Promise<void> {
-    const current = await this.redis.get(key);
-    if (current === token) {
-      await this.redis.del(key);
-    }
+    await this.redis.eval(RELEASE_LOCK_SCRIPT, 1, key, token);
   }
 
   public async close(): Promise<void> {
