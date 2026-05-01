@@ -2,7 +2,7 @@ import type { Logger } from "pino";
 
 import type { AppConfig } from "../config.js";
 import type { OnchainSnapshot } from "../domain/types.js";
-import { fetchJson } from "../lib/http.js";
+import { fetchJson, fetchText } from "../lib/http.js";
 
 type MempoolResponse = {
   count: number;
@@ -23,7 +23,6 @@ type DifficultyResponse = {
 
 export class OnchainIngestor {
   private timer: NodeJS.Timeout | null = null;
-  private pollInFlight: Promise<void> | null = null;
   private lastHeight: number | null = null;
   private lastHeightAt: number | null = null;
   private lastFees: number | null = null;
@@ -35,32 +34,16 @@ export class OnchainIngestor {
   ) {}
 
   public async start(): Promise<void> {
-    await this.runPoll();
+    await this.poll();
     this.timer = setInterval(() => {
-      void this.runPoll();
+      void this.poll();
     }, 5 * 60_000);
   }
 
   public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
-      this.timer = null;
     }
-  }
-
-  private runPoll(): Promise<void> {
-    if (this.pollInFlight) {
-      return this.pollInFlight;
-    }
-
-    const pollPromise = this.poll().finally(() => {
-      if (this.pollInFlight === pollPromise) {
-        this.pollInFlight = null;
-      }
-    });
-
-    this.pollInFlight = pollPromise;
-    return pollPromise;
   }
 
   private async poll(): Promise<void> {
@@ -68,9 +51,7 @@ export class OnchainIngestor {
       const [mempool, fees, tipHeight, difficulty] = await Promise.all([
         fetchJson<MempoolResponse>(`${this.config.onchainBaseUrl}/mempool`),
         fetchJson<FeesResponse>(`${this.config.onchainBaseUrl}/v1/fees/recommended`),
-        fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`).then(async (response) =>
-          Number(await response.text())
-        ),
+        fetchText(`${this.config.onchainBaseUrl}/blocks/tip/height`).then((value) => Number(value)),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
       ]);
 
