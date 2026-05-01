@@ -15,6 +15,7 @@ const BTC_KEYWORDS = ["bitcoin", "btc", "etf", "fomc", "cpi", "inflation", "fed"
 export class NewsIngestor {
   private readonly seen = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
+  private pollInFlight: Promise<void> | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -23,16 +24,32 @@ export class NewsIngestor {
   ) {}
 
   public async start(): Promise<void> {
-    await this.poll();
+    await this.runPoll();
     this.timer = setInterval(() => {
-      void this.poll();
+      void this.runPoll();
     }, 60_000);
   }
 
   public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
+      this.timer = null;
     }
+  }
+
+  private runPoll(): Promise<void> {
+    if (this.pollInFlight) {
+      return this.pollInFlight;
+    }
+
+    const pollPromise = this.poll().finally(() => {
+      if (this.pollInFlight === pollPromise) {
+        this.pollInFlight = null;
+      }
+    });
+
+    this.pollInFlight = pollPromise;
+    return pollPromise;
   }
 
   private async poll(): Promise<void> {

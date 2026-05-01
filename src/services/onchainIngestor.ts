@@ -23,6 +23,7 @@ type DifficultyResponse = {
 
 export class OnchainIngestor {
   private timer: NodeJS.Timeout | null = null;
+  private pollInFlight: Promise<void> | null = null;
   private lastHeight: number | null = null;
   private lastHeightAt: number | null = null;
   private lastFees: number | null = null;
@@ -34,16 +35,32 @@ export class OnchainIngestor {
   ) {}
 
   public async start(): Promise<void> {
-    await this.poll();
+    await this.runPoll();
     this.timer = setInterval(() => {
-      void this.poll();
+      void this.runPoll();
     }, 5 * 60_000);
   }
 
   public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
+      this.timer = null;
     }
+  }
+
+  private runPoll(): Promise<void> {
+    if (this.pollInFlight) {
+      return this.pollInFlight;
+    }
+
+    const pollPromise = this.poll().finally(() => {
+      if (this.pollInFlight === pollPromise) {
+        this.pollInFlight = null;
+      }
+    });
+
+    this.pollInFlight = pollPromise;
+    return pollPromise;
   }
 
   private async poll(): Promise<void> {
