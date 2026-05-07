@@ -82,7 +82,16 @@ export class EventDetector {
       return;
     }
 
-    this.lastTriggered.set(trigger.reason, Date.now());
-    await this.onTrigger(trigger);
+    const triggeredAt = Date.now();
+    this.lastTriggered.set(trigger.reason, triggeredAt);
+
+    try {
+      await this.onTrigger(trigger);
+    } catch (error) {
+      if (this.lastTriggered.get(trigger.reason) === triggeredAt) {
+        this.lastTriggered.delete(trigger.reason);
+      }
+      throw error;
+    }
   }
 }
