@@ -375,6 +375,10 @@ export class PaperBroker implements Broker {
         netRealizedPnl: cumulativeNet,
         takeProfit: this.position.tp2 ?? this.position.takeProfit
       };
+      this.account.availableBalance = Math.max(
+        0,
+        this.account.walletBalance - (this.position.entryPrice * this.position.quantity) / this.position.leverage
+      );
     }
 
     this.markToMarket(market.markPrice);
