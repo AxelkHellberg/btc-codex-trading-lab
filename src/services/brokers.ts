@@ -530,30 +530,13 @@ export class LiveBroker implements Broker {
         newOrderRespType: "RESULT",
         newClientOrderId: `entry-${tradeId}`
       });
-      if (plan.stopLoss !== undefined) {
-        await this.client.createOrder({
-          symbol: this.config.symbol,
-          side: plan.side === "BUY" ? "SELL" : "BUY",
-          type: "STOP_MARKET",
-          stopPrice: plan.stopLoss,
-          quantity: plan.quantity,
-          reduceOnly: true,
-          workingType: "CONTRACT_PRICE",
-          newClientOrderId: `stop-${tradeId}`
-        });
-      }
-      if (plan.tp2 !== undefined) {
-        await this.client.createOrder({
-          symbol: this.config.symbol,
-          side: plan.side === "BUY" ? "SELL" : "BUY",
-          type: "TAKE_PROFIT_MARKET",
-          stopPrice: plan.tp2,
-          quantity: plan.quantity,
-          reduceOnly: true,
-          workingType: "CONTRACT_PRICE",
-          newClientOrderId: `tp-${tradeId}`
-        });
-      }
+      await this.placeProtectionOrders(
+        tradeId,
+        plan.side === "BUY" ? "SELL" : "BUY",
+        plan.quantity,
+        plan.stopLoss,
+        plan.tp2
+      );
       const [accountState, positionState] = await Promise.all([
         this.client.getBalanceState(),
         this.client.getPositionState(this.config.symbol)
@@ -638,6 +621,17 @@ export class LiveBroker implements Broker {
             updatedAt: now
           };
 
+    if (tradeRecord && tradeRecord.status === "partial") {
+      await this.placeProtectionOrders(
+        tradeRecord.tradeId,
+        positionState.side === "long" ? "SELL" : "BUY",
+        positionState.quantity,
+        tradeRecord.stopLoss,
+        tradeRecord.tp2 ?? tradeRecord.takeProfit,
+        `reduce-${now}`
+      );
+    }
+
     if (tradeRecord?.status === "closed") {
       this.activeTrade = null;
     } else if (tradeRecord) {
@@ -678,5 +672,40 @@ export class LiveBroker implements Broker {
         realizedPnl: 0
       }
     };
+  }
+
+  private async placeProtectionOrders(
+    tradeId: string,
+    side: "BUY" | "SELL",
+    quantity: number,
+    stopLoss?: number,
+    takeProfit?: number,
+    suffix = "entry"
+  ): Promise<void> {
+    if (stopLoss !== undefined) {
+      await this.client.createOrder({
+        symbol: this.config.symbol,
+        side,
+        type: "STOP_MARKET",
+        stopPrice: stopLoss,
+        quantity,
+        reduceOnly: true,
+        workingType: "CONTRACT_PRICE",
+        newClientOrderId: `stop-${tradeId}-${suffix}`
+      });
+    }
+
+    if (takeProfit !== undefined) {
+      await this.client.createOrder({
+        symbol: this.config.symbol,
+        side,
+        type: "TAKE_PROFIT_MARKET",
+        stopPrice: takeProfit,
+        quantity,
+        reduceOnly: true,
+        workingType: "CONTRACT_PRICE",
+        newClientOrderId: `tp-${tradeId}-${suffix}`
+      });
+    }
   }
 }
