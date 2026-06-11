@@ -21,6 +21,24 @@ export const roundToTick = (value: number, tick: number): number => {
   return Number((Math.round(value / tick) * tick).toFixed(precision));
 };
 
+export const roundToTickLong = (value: number, tick: number): number => {
+  if (!Number.isFinite(value) || tick <= 0) {
+    return value;
+  }
+
+  const precision = Math.max(0, Math.ceil(-Math.log10(tick)));
+  return Number((Math.floor(value / tick) * tick).toFixed(precision));
+};
+
+export const roundToTickShort = (value: number, tick: number): number => {
+  if (!Number.isFinite(value) || tick <= 0) {
+    return value;
+  }
+
+  const precision = Math.max(0, Math.ceil(-Math.log10(tick)));
+  return Number((Math.ceil(value / tick) * tick).toFixed(precision));
+};
+
 export const riskRewardRatio = (entry: number, stop: number, takeProfit: number): number => {
   const risk = Math.abs(entry - stop);
   const reward = Math.abs(takeProfit - entry);
