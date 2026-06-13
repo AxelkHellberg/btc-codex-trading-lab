@@ -27,11 +27,16 @@ export class RedisHotStore {
     return result === "OK";
   }
 
+  // Security fix: Use atomic Lua script to prevent race condition in lock release
   public async releaseLock(key: string, token: string): Promise<void> {
-    const current = await this.redis.get(key);
-    if (current === token) {
-      await this.redis.del(key);
-    }
+    const luaScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await this.redis.eval(luaScript, 1, key, token);
   }
 
   public async close(): Promise<void> {
