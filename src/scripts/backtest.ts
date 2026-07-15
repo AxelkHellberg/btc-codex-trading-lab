@@ -31,8 +31,9 @@ type Candle = {
   closeTime: number;
 };
 
-const days = Number(process.env.BACKTEST_DAYS ?? 90);
-const initialBalance = Number(process.env.BACKTEST_INITIAL_BALANCE ?? config.paperStartingBalance);
+const {
+  backtest: { days, initialBalance }
+} = config;
 
 const ema = (values: number[], period: number): number => {
   const k = 2 / (period + 1);
