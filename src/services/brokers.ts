@@ -127,7 +127,6 @@ export class PaperBroker implements Broker {
     const now = Date.now();
 
     this.account.walletBalance -= fee;
-    this.account.availableBalance = Math.max(0, this.account.walletBalance - (fillPrice * plan.quantity) / plan.leverage);
     this.account.openOrders = 2;
 
     this.position = {
@@ -198,6 +197,7 @@ export class PaperBroker implements Broker {
       updatedAt: now
     };
 
+    this.syncAvailableBalance();
     this.markToMarket(market.markPrice);
 
     return {
@@ -363,7 +363,6 @@ export class PaperBroker implements Broker {
         realizedPnl: cumulativeNet
       };
       this.account.openOrders = 0;
-      this.account.availableBalance = this.account.walletBalance;
     } else {
       this.position = {
         ...this.position,
@@ -377,6 +376,7 @@ export class PaperBroker implements Broker {
       };
     }
 
+    this.syncAvailableBalance();
     this.markToMarket(market.markPrice);
     this.syncActiveTrade(reason, closeQty, grossPnl, fee, netPnl, remainingQty, exitPrice, now);
 
@@ -504,6 +504,17 @@ export class PaperBroker implements Broker {
       return false;
     }
     return this.position.side === "long" ? markPrice >= this.position.tp1 : markPrice <= this.position.tp1;
+  }
+
+  private syncAvailableBalance(): void {
+    if (this.position.side === "flat" || this.position.quantity <= 0) {
+      this.account.availableBalance = this.account.walletBalance;
+      return;
+    }
+
+    const leverage = Math.max(1, this.position.leverage);
+    const marginRequirement = (this.position.entryPrice * this.position.quantity) / leverage;
+    this.account.availableBalance = Math.max(0, this.account.walletBalance - marginRequirement);
   }
 }
 
