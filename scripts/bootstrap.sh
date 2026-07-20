@@ -10,5 +10,6 @@ fi
 
 npm install
 docker compose up -d postgres redis
-echo "Run 'npx @openai/codex login --device-auth' if Codex is not authenticated yet."
+echo "Run 'codex login --device-auth' if Codex is not authenticated yet."
+echo "If the codex binary is not installed yet, use 'npx @openai/codex login --device-auth'."
 echo "Then start paper trading with: npm run dev"
