@@ -51,9 +51,7 @@ export class OnchainIngestor {
       const [mempool, fees, tipHeight, difficulty] = await Promise.all([
         fetchJson<MempoolResponse>(`${this.config.onchainBaseUrl}/mempool`),
         fetchJson<FeesResponse>(`${this.config.onchainBaseUrl}/v1/fees/recommended`),
-        fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`).then(async (response) =>
-          Number(await response.text())
-        ),
+        this.fetchTipHeight(),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
       ]);
 
@@ -80,5 +78,19 @@ export class OnchainIngestor {
     } catch (error) {
       this.logger.warn({ error }, "Failed to refresh on-chain metrics");
     }
+  }
+
+  private async fetchTipHeight(): Promise<number> {
+    const response = await fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tip height: ${response.status} ${await response.text()}`);
+    }
+
+    const tipHeight = Number(await response.text());
+    if (!Number.isFinite(tipHeight)) {
+      throw new Error("Failed to fetch tip height: non-numeric response");
+    }
+
+    return tipHeight;
   }
 }
