@@ -86,7 +86,12 @@ export class OnchainIngestor {
       throw new Error(`Failed to fetch tip height: ${response.status} ${await response.text()}`);
     }
 
-    const tipHeight = Number(await response.text());
+    const rawTipHeight = (await response.text()).trim();
+    if (!/^\d+$/.test(rawTipHeight)) {
+      throw new Error("Failed to fetch tip height: non-numeric response");
+    }
+
+    const tipHeight = Number(rawTipHeight);
     if (!Number.isFinite(tipHeight)) {
       throw new Error("Failed to fetch tip height: non-numeric response");
     }
