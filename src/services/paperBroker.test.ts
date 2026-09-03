@@ -121,6 +121,7 @@ describe("PaperBroker", () => {
     const open = await broker.execute(plan, context());
     expect(open.accepted).toBe(true);
     expect(open.tradeRecord?.status).toBe("open");
+    const availableBalanceBeforeTp1 = open.accountState.availableBalance;
 
     await broker.onMarketSnapshot?.({
       ...context().market_snapshot,
@@ -136,6 +137,12 @@ describe("PaperBroker", () => {
     expect(partial?.accepted).toBe(true);
     expect(partial?.tradeRecord?.status).toBe("partial");
     expect(partial?.positionState.quantity).toBeCloseTo(0.01, 5);
+    expect(partial?.accountState.availableBalance).toBeGreaterThan(availableBalanceBeforeTp1);
+    expect(partial?.accountState.availableBalance).toBeCloseTo(
+      partial!.accountState.walletBalance -
+        (open.positionState.entryPrice * partial!.positionState.quantity) / open.positionState.leverage,
+      5
+    );
 
     await broker.onMarketSnapshot?.({
       ...context().market_snapshot,
