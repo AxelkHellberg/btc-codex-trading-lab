@@ -10,6 +10,27 @@ const csvToList = (raw: string): string[] =>
     .map((value) => value.trim())
     .filter(Boolean);
 
+const parseBooleanEnv = (raw: string | undefined, defaultValue: boolean): boolean => {
+  if (raw === undefined) {
+    return defaultValue;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "") {
+    return defaultValue;
+  }
+
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  return defaultValue;
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_PORT: z.coerce.number().int().positive().default(3000),
@@ -42,7 +63,7 @@ const envSchema = z.object({
   CODEX_USE_CLI_FALLBACK: z
     .string()
     .optional()
-    .transform((value) => value !== "false")
+    .transform((value) => parseBooleanEnv(value, true))
 });
 
 const parsed = envSchema.parse(process.env);
