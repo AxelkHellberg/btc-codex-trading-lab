@@ -77,12 +77,24 @@ export class EventDetector {
 
   private async emit(trigger: EvaluationTrigger): Promise<void> {
     const cooldownMs = trigger.reason === "minute_recheck" ? 50_000 : 20_000;
-    const last = this.lastTriggered.get(trigger.reason) ?? 0;
-    if (Date.now() - last < cooldownMs) {
+    const previousLast = this.lastTriggered.get(trigger.reason);
+    const last = previousLast ?? 0;
+    const now = Date.now();
+    if (now - last < cooldownMs) {
       return;
     }
 
-    this.lastTriggered.set(trigger.reason, Date.now());
-    await this.onTrigger(trigger);
+    this.lastTriggered.set(trigger.reason, now);
+
+    try {
+      await this.onTrigger(trigger);
+    } catch (error) {
+      if (previousLast === undefined) {
+        this.lastTriggered.delete(trigger.reason);
+      } else {
+        this.lastTriggered.set(trigger.reason, previousLast);
+      }
+      throw error;
+    }
   }
 }
