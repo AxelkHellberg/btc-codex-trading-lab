@@ -123,6 +123,7 @@ GitHub Actions runs:
 - `npm ci`
 - `npm run build`
 - `npm test`
+- weekly and on-demand production dependency audits with `npm audit --omit=dev --audit-level=high`
 
 ## Important caveats
 
