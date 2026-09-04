@@ -88,6 +88,7 @@ Useful commands:
 
 - `npm test`
 - `npm run build`
+- `npm run audit:prod`
 - `npm run doctor`
 - `npm run backtest`
 - `./scripts/bootstrap.sh`
@@ -123,6 +124,11 @@ GitHub Actions runs:
 - `npm ci`
 - `npm run build`
 - `npm test`
+- `npm run audit:prod`
+
+Use the same audit check locally before opening a PR when you touch runtime dependencies:
+
+- `npm run audit:prod`
 
 ## Important caveats
 
