@@ -26,6 +26,7 @@ export class OnchainIngestor {
   private lastHeight: number | null = null;
   private lastHeightAt: number | null = null;
   private lastFees: number | null = null;
+  private pollPromise: Promise<void> | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -34,9 +35,9 @@ export class OnchainIngestor {
   ) {}
 
   public async start(): Promise<void> {
-    await this.poll();
+    await this.runPoll();
     this.timer = setInterval(() => {
-      void this.poll();
+      void this.runPoll();
     }, 5 * 60_000);
   }
 
@@ -44,6 +45,21 @@ export class OnchainIngestor {
     if (this.timer) {
       clearInterval(this.timer);
     }
+  }
+
+  private runPoll(): Promise<void> {
+    if (this.pollPromise) {
+      return this.pollPromise;
+    }
+
+    const pollPromise = this.poll().finally(() => {
+      if (this.pollPromise === pollPromise) {
+        this.pollPromise = null;
+      }
+    });
+
+    this.pollPromise = pollPromise;
+    return pollPromise;
   }
 
   private async poll(): Promise<void> {
