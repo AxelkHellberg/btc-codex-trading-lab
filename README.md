@@ -84,6 +84,11 @@ Runtime flow:
 6. Start the app:
    - `npm run dev`
 
+When using Binance testnet, staging, or a proxy, override both
+`BINANCE_FUTURES_BASE_URL` and `BINANCE_FUTURES_WS_URL` so REST listen-key
+creation, combined market streams, and user data streams all target the same
+environment.
+
 Useful commands:
 
 - `npm test`

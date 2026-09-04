@@ -250,7 +250,7 @@ export class BinanceFuturesClient {
   }
 
   public connectUserStream(listenKey: string, onMessage: (event: unknown) => void): WebSocket {
-    const socket = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
+    const socket = new WebSocket(this.getUserStreamUrl(listenKey));
     socket.on("message", (payload) => {
       try {
         onMessage(JSON.parse(payload.toString()) as unknown);
@@ -259,6 +259,15 @@ export class BinanceFuturesClient {
       }
     });
     return socket;
+  }
+
+  private getUserStreamUrl(listenKey: string): string {
+    const url = new URL(this.wsBaseUrl);
+    const basePath = url.pathname.replace(/\/stream\/?$/, "");
+    url.pathname = `${basePath}/ws/${listenKey}`.replace(/\/{2,}/g, "/");
+    url.search = "";
+    url.hash = "";
+    return url.toString();
   }
 
   public async composeInitialMarketSnapshot(symbol: string, filters?: SymbolFilters): Promise<MarketSnapshot> {
