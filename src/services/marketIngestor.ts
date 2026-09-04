@@ -56,11 +56,14 @@ export class MarketIngestor {
   private marketSocket: WebSocket | null = null;
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private marketReconnectTimer: NodeJS.Timeout | null = null;
+  private userReconnectTimer: NodeJS.Timeout | null = null;
   private listenKey: string | null = null;
   private snapshot: MarketSnapshot | null = null;
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private isShuttingDown = false;
 
   public constructor(
     private readonly config: AppConfig,
@@ -70,6 +73,8 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.isShuttingDown = false;
+    this.clearReconnectTimers();
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
@@ -89,15 +94,26 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.isShuttingDown = true;
+    this.clearReconnectTimers();
     this.client.stopUserStreamKeepalive();
-    this.marketSocket?.close();
-    this.userSocket?.close();
+    const marketSocket = this.marketSocket;
+    const userSocket = this.userSocket;
+    this.marketSocket = null;
+    this.userSocket = null;
+    marketSocket?.close();
+    userSocket?.close();
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
     }
   }
 
   private connectMarketSocket(): void {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     const url = this.client.getCombinedMarketStreamUrl(this.config.symbol);
     this.marketSocket = new WebSocket(url);
     this.marketSocket.on("message", (raw) => {
@@ -106,8 +122,13 @@ export class MarketIngestor {
       });
     });
     this.marketSocket.on("close", () => {
+      this.marketSocket = null;
+      if (this.isShuttingDown) {
+        return;
+      }
+
       this.logger.warn("Market websocket closed; reconnecting in 3s");
-      setTimeout(() => this.connectMarketSocket(), 3_000);
+      this.scheduleMarketReconnect();
     });
     this.marketSocket.on("error", (error) => {
       this.logger.warn({ error }, "Market websocket error");
@@ -115,17 +136,62 @@ export class MarketIngestor {
   }
 
   private async startUserStream(): Promise<void> {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     this.listenKey = await this.client.startUserStream();
+    if (this.isShuttingDown) {
+      this.client.stopUserStreamKeepalive();
+      return;
+    }
+
     this.client.startUserStreamKeepalive(this.listenKey);
     this.userSocket = this.client.connectUserStream(this.listenKey, (event) => {
       void this.handleUserStreamEvent(event);
     });
     this.userSocket.on("close", () => {
+      this.userSocket = null;
+      if (this.isShuttingDown) {
+        return;
+      }
+
       this.logger.warn("User stream websocket closed; refreshing listenKey");
-      setTimeout(() => {
-        void this.startUserStream();
-      }, 3_000);
+      this.scheduleUserReconnect();
     });
+  }
+
+  private scheduleMarketReconnect(): void {
+    if (this.marketReconnectTimer) {
+      return;
+    }
+
+    this.marketReconnectTimer = setTimeout(() => {
+      this.marketReconnectTimer = null;
+      this.connectMarketSocket();
+    }, 3_000);
+  }
+
+  private scheduleUserReconnect(): void {
+    if (this.userReconnectTimer) {
+      return;
+    }
+
+    this.userReconnectTimer = setTimeout(() => {
+      this.userReconnectTimer = null;
+      void this.startUserStream();
+    }, 3_000);
+  }
+
+  private clearReconnectTimers(): void {
+    if (this.marketReconnectTimer) {
+      clearTimeout(this.marketReconnectTimer);
+      this.marketReconnectTimer = null;
+    }
+    if (this.userReconnectTimer) {
+      clearTimeout(this.userReconnectTimer);
+      this.userReconnectTimer = null;
+    }
   }
 
   private async handleUserStreamEvent(event: unknown): Promise<void> {
