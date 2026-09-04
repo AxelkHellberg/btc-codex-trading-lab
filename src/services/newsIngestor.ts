@@ -83,9 +83,13 @@ export class NewsIngestor {
     );
 
     if (collected.length > 0) {
-      await this.onEvents(
-        collected.sort((left, right) => right.relevanceScore - left.relevanceScore)
-      );
+      try {
+        await this.onEvents(
+          collected.sort((left, right) => right.relevanceScore - left.relevanceScore)
+        );
+      } catch (error) {
+        this.logger.error({ error, eventCount: collected.length }, "Failed to process news events");
+      }
     }
   }
 
