@@ -134,12 +134,16 @@ export class MarketIngestor {
       return;
     }
 
-    const [account, position] = await Promise.all([
-      this.client.getBalanceState(),
-      this.client.getPositionState(this.config.symbol)
-    ]);
-    await this.callbacks.onAccount(account);
-    await this.callbacks.onPosition(position);
+    try {
+      const [account, position] = await Promise.all([
+        this.client.getBalanceState(),
+        this.client.getPositionState(this.config.symbol)
+      ]);
+      await this.callbacks.onAccount(account);
+      await this.callbacks.onPosition(position);
+    } catch (error) {
+      this.logger.warn({ error, eventType: typed.e }, "Failed to process user stream event");
+    }
   }
 
   private async handleMarketMessage(raw: string): Promise<void> {
