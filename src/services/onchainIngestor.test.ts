@@ -144,4 +144,13 @@ describe("OnchainIngestor", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("rejects zero as an invalid tip height", async () => {
+    const ingestor = new OnchainIngestor(config, { warn: vi.fn() } as never, vi.fn());
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("0", { status: 200 })));
+
+    await expect(
+      (ingestor as never as { fetchTipHeight: () => Promise<number> }).fetchTipHeight()
+    ).rejects.toThrow("Failed to fetch tip height: invalid response");
+  });
 });

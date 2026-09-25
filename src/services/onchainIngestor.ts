@@ -92,8 +92,8 @@ export class OnchainIngestor {
     }
 
     const tipHeight = Number(rawTipHeight);
-    if (!Number.isFinite(tipHeight)) {
-      throw new Error("Failed to fetch tip height: non-numeric response");
+    if (!Number.isSafeInteger(tipHeight) || tipHeight <= 0) {
+      throw new Error("Failed to fetch tip height: invalid response");
     }
 
     return tipHeight;
