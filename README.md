@@ -76,7 +76,8 @@ Runtime flow:
 1. Copy `.env.example` to `.env`
 2. Fill the required credentials
 3. Authenticate Codex:
-   - `npx @openai/codex login --device-auth`
+   - `codex login --device-auth`
+   - If the `codex` binary is not installed yet: `npx @openai/codex login --device-auth`
 4. Install dependencies:
    - `npm install`
 5. Start local infrastructure:
