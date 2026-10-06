@@ -84,6 +84,20 @@ Runtime flow:
 6. Start the app:
    - `npm run dev`
 
+### Paper-first startup
+
+Keep `TRADING_MODE=paper` while validating a new environment. Before relying on the running service, run:
+
+```bash
+npm run doctor
+```
+
+The doctor output reports connectivity for PostgreSQL, Redis, the local HTTP server, and Binance, as well as whether Binance and Telegram credentials are present. Confirm `trading_mode: "paper"` and the expected symbol before sending a manual `POST /trigger` or running the paper script.
+
+### Live mode
+
+`./scripts/run-live.sh` sets `TRADING_MODE=live` for that process; it does not configure or validate your account for you. Use it only after paper-mode validation and after setting both `BINANCE_API_KEY` and `BINANCE_API_SECRET` in a local, uncommitted `.env` file. Review the risk settings in the same file—especially `RISK_PER_TRADE`, `MAX_LEVERAGE`, `MAX_DAILY_LOSS`, `MAX_WEEKLY_DRAWDOWN`, `MAX_OPEN_POSITIONS`, and `COOLDOWN_MINUTES`—before starting the live path.
+
 Useful commands:
 
 - `npm test`
