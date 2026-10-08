@@ -78,4 +78,17 @@ describe("EventDetector", () => {
     expect(onTrigger).toHaveBeenCalledTimes(1);
     expect(onTrigger.mock.calls[0]?.[0].reason).toBe("open_interest_spike");
   });
+
+  it("allows an immediate retry when trigger dispatch fails", async () => {
+    const onTrigger = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("redis unavailable"))
+      .mockResolvedValueOnce();
+    const detector = new EventDetector(onTrigger);
+
+    await expect(detector.heartbeat()).rejects.toThrow("redis unavailable");
+    await detector.heartbeat();
+
+    expect(onTrigger).toHaveBeenCalledTimes(2);
+  });
 });
