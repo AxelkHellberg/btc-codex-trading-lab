@@ -78,4 +78,26 @@ describe("EventDetector", () => {
     expect(onTrigger).toHaveBeenCalledTimes(1);
     expect(onTrigger.mock.calls[0]?.[0].reason).toBe("open_interest_spike");
   });
+
+  it("retries the same trigger immediately after onTrigger rejects", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    try {
+      const onTrigger = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("redis unavailable"))
+        .mockResolvedValueOnce(undefined);
+      const detector = new EventDetector(onTrigger);
+
+      await expect(detector.heartbeat()).rejects.toThrow("redis unavailable");
+      await detector.heartbeat();
+
+      expect(onTrigger).toHaveBeenCalledTimes(2);
+      expect(onTrigger.mock.calls[0]?.[0].reason).toBe("minute_recheck");
+      expect(onTrigger.mock.calls[1]?.[0].reason).toBe("minute_recheck");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
