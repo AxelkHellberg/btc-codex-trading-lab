@@ -1,15 +1,18 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 
 import type { RuntimeState } from "../services/runtimeState.js";
+
+export type HttpServer = {
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
+  inject: FastifyInstance["inject"];
+};
 
 export async function createHttpServer(
   runtime: RuntimeState,
   port: number,
   triggerEvaluation?: () => Promise<void>
-): Promise<{
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-}> {
+): Promise<HttpServer> {
   const app = Fastify({ logger: false });
 
   const dashboardHtml = `<!doctype html>
@@ -564,6 +567,7 @@ export async function createHttpServer(
     },
     stop: async () => {
       await app.close();
-    }
+    },
+    inject: app.inject.bind(app)
   };
 }
