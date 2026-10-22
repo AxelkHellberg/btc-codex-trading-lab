@@ -5,31 +5,7 @@ import { logger } from "../logger.js";
 import { PaperBroker } from "../services/brokers.js";
 import { RiskEngine } from "../services/riskEngine.js";
 import { StrategyPlanner } from "../services/strategyPlanner.js";
-
-type Kline = [
-  number,
-  string,
-  string,
-  string,
-  string,
-  string,
-  number,
-  string,
-  number,
-  string,
-  string,
-  string
-];
-
-type Candle = {
-  openTime: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  closeTime: number;
-};
+import { fetchHistoricalKlines, type Candle } from "./backtestKlines.js";
 
 const days = Number(process.env.BACKTEST_DAYS ?? 90);
 const initialBalance = Number(process.env.BACKTEST_INITIAL_BALANCE ?? config.paperStartingBalance);
@@ -56,41 +32,6 @@ const volumeAcceleration = (candles: Candle[]): number => {
     return recent > 0 ? 1 : 0;
   }
   return recent / baseline;
-};
-
-const fetchHistoricalKlines = async (
-  client: BinanceFuturesClient,
-  symbol: string,
-  startTime: number,
-  endTime: number
-): Promise<Candle[]> => {
-  const rows: Candle[] = [];
-  let cursor = startTime;
-
-  while (cursor < endTime) {
-    const url = `${config.binance.restBaseUrl}/fapi/v1/klines?symbol=${symbol}&interval=1m&limit=1500&startTime=${cursor}&endTime=${endTime}`;
-    const response = (await fetch(url).then((res) => res.json())) as Kline[];
-    if (response.length === 0) {
-      break;
-    }
-
-    const candles = response.map((row) => ({
-      openTime: row[0],
-      open: Number(row[1]),
-      high: Number(row[2]),
-      low: Number(row[3]),
-      close: Number(row[4]),
-      volume: Number(row[5]),
-      closeTime: row[6]
-    }));
-    rows.push(...candles);
-    cursor = candles[candles.length - 1]!.closeTime + 1;
-    if (response.length < 1500) {
-      break;
-    }
-  }
-
-  return rows;
 };
 
 const decideFromHistory = (candles: Candle[]): StrategySignal => {
@@ -153,7 +94,7 @@ const main = async (): Promise<void> => {
   const riskEngine = new RiskEngine(config);
   const endTime = Date.now();
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
-  const candles = await fetchHistoricalKlines(client, config.symbol, startTime, endTime);
+  const candles = await fetchHistoricalKlines(config.binance.restBaseUrl, config.symbol, startTime, endTime);
   const filters = await client.getSymbolFilters(config.symbol);
   let wins = 0;
   let losses = 0;
@@ -327,6 +268,6 @@ const main = async (): Promise<void> => {
 };
 
 void main().catch((error) => {
-  logger.error({ error }, "Backtest failed");
+  logger.error({ err: error }, "Backtest failed");
   process.exit(1);
 });
