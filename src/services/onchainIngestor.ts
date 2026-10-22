@@ -14,6 +14,22 @@ type FeesResponse = {
   hourFee: number;
 };
 
+function parseFees(payload: unknown): FeesResponse {
+  const endpoint = "/v1/fees/recommended";
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw new Error(`${endpoint}: expected a response object`);
+  }
+  const values = payload as Record<string, unknown>;
+  const fee = (field: keyof FeesResponse): number => {
+    const value = values[field];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      throw new Error(`${endpoint}: ${field} must be a finite non-negative number`);
+    }
+    return value;
+  };
+  return { fastestFee: fee("fastestFee"), halfHourFee: fee("halfHourFee"), hourFee: fee("hourFee") };
+}
+
 type DifficultyResponse = {
   progressPercent: number;
   remainingBlocks: number;
@@ -48,15 +64,16 @@ export class OnchainIngestor {
 
   private async poll(): Promise<void> {
     try {
-      const [mempool, fees, tipHeight, difficulty] = await Promise.all([
+      const [mempool, feesPayload, tipHeight, difficulty] = await Promise.all([
         fetchJson<MempoolResponse>(`${this.config.onchainBaseUrl}/mempool`),
-        fetchJson<FeesResponse>(`${this.config.onchainBaseUrl}/v1/fees/recommended`),
+        fetchJson<unknown>(`${this.config.onchainBaseUrl}/v1/fees/recommended`),
         fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`).then(async (response) =>
           Number(await response.text())
         ),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
       ]);
 
+      const fees = parseFees(feesPayload);
       const now = Date.now();
       const blockCadenceSeconds =
         this.lastHeight !== null && this.lastHeightAt !== null && tipHeight > this.lastHeight
