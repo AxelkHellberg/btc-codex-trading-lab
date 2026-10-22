@@ -5,6 +5,7 @@ import { logger } from "../logger.js";
 import { PaperBroker } from "../services/brokers.js";
 import { RiskEngine } from "../services/riskEngine.js";
 import { StrategyPlanner } from "../services/strategyPlanner.js";
+import { readBacktestOptions } from "./backtestOptions.js";
 
 type Kline = [
   number,
@@ -30,9 +31,6 @@ type Candle = {
   volume: number;
   closeTime: number;
 };
-
-const days = Number(process.env.BACKTEST_DAYS ?? 90);
-const initialBalance = Number(process.env.BACKTEST_INITIAL_BALANCE ?? config.paperStartingBalance);
 
 const ema = (values: number[], period: number): number => {
   const k = 2 / (period + 1);
@@ -137,6 +135,7 @@ const decideFromHistory = (candles: Candle[]): StrategySignal => {
 };
 
 const main = async (): Promise<void> => {
+  const { days, initialBalance } = readBacktestOptions(process.env, config.paperStartingBalance);
   const client = new BinanceFuturesClient(
     config.binance.restBaseUrl,
     config.binance.wsBaseUrl,
@@ -327,6 +326,6 @@ const main = async (): Promise<void> => {
 };
 
 void main().catch((error) => {
-  logger.error({ error }, "Backtest failed");
+  logger.error({ err: error }, "Backtest failed");
   process.exit(1);
 });
