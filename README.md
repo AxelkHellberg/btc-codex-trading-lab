@@ -108,6 +108,16 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+### Profit factor in status and dashboard
+
+`GET /status` reports `tradeStats.profitFactor` as gross profit divided by absolute
+gross loss for the retained closed trades when losses exist, with
+`profitFactorStatus: "finite"`. With no losses the ratio is `null`, accompanied by
+`"no_losses"` when there is positive profit, `"no_profit_or_loss"` for only
+breakeven trades, or `"no_trades"` for no closed trades. The dashboard shows
+“No losses” or “N/A” for these undefined ratios. Consumers should use the status
+instead of treating `null` as zero or as a currency amount.
+
 ## Operations
 
 macOS background run:
