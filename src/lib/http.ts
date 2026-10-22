@@ -18,7 +18,10 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
   });
 
   if (!response.ok) {
-    throw new HttpError(await response.text(), response.status);
+    // Error bodies may be unbounded or contain sensitive and multiline text.
+    // Discard them without delaying the HTTP failure on stream cancellation.
+    void response.body?.cancel().catch(() => undefined);
+    throw new HttpError(`HTTP request failed (status ${response.status})`, response.status);
   }
 
   return (await response.json()) as T;
