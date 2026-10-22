@@ -464,7 +464,11 @@ export async function createHttpServer(
         setText("confidenceRejectRate", pct.format(confidenceRejects / denom), confidenceRejects / denom > 0.35 ? "negative" : "neutral", false);
         setText("rrRejectRate", pct.format(rrRejects / denom), rrRejects / denom > 0.25 ? "negative" : "neutral", false);
         setText("invalidExitRate", pct.format(invalidExitRejects / denom), invalidExitRejects > 0 ? "negative" : "neutral", false);
-        setText("profitFactor", num.format(data.tradeStats?.profitFactor || 0), (data.tradeStats?.profitFactor || 0) > 1 ? "positive" : "neutral", false);
+        const profitFactor = data.tradeStats?.profitFactor;
+        const profitFactorText = data.tradeStats?.profitFactorStatus === "no_losses"
+          ? "No losses"
+          : typeof profitFactor === "number" ? num.format(profitFactor) : "N/A";
+        setText("profitFactor", profitFactorText, typeof profitFactor === "number" && profitFactor > 1 ? "positive" : "neutral", false);
         setText("averageWinner", money.format(data.tradeStats?.averageWinner || 0), "positive", false);
         setText("averageLoser", money.format(data.tradeStats?.averageLoser || 0), "negative", false);
         setText("averageMfe", money.format(data.tradeStats?.averageMfe || 0), "positive", false);

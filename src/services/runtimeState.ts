@@ -223,7 +223,8 @@ export class RuntimeState {
     unrealizedPnl: number;
     winRate: number;
     expectancy: number;
-    profitFactor: number;
+    profitFactor: number | null;
+    profitFactorStatus: "finite" | "no_losses" | "no_profit_or_loss" | "no_trades";
     averageWinner: number;
     averageLoser: number;
     averageMfe: number;
@@ -246,7 +247,8 @@ export class RuntimeState {
       unrealizedPnl: this.position.unrealizedPnl,
       winRate: closedTrades.length > 0 ? winners.length / closedTrades.length : 0,
       expectancy: closedTrades.length > 0 ? closedTrades.reduce((sum, trade) => sum + trade.netPnl, 0) / closedTrades.length : 0,
-      profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0,
+      profitFactor: grossLoss > 0 ? grossProfit / grossLoss : null,
+      profitFactorStatus: grossLoss > 0 ? "finite" : grossProfit > 0 ? "no_losses" : closedTrades.length > 0 ? "no_profit_or_loss" : "no_trades",
       averageWinner: winners.length > 0 ? grossProfit / winners.length : 0,
       averageLoser: losers.length > 0 ? losers.reduce((sum, trade) => sum + trade.netPnl, 0) / losers.length : 0,
       averageMfe: closedTrades.length > 0 ? closedTrades.reduce((sum, trade) => sum + trade.mfe, 0) / closedTrades.length : 0,
