@@ -56,7 +56,9 @@ export class NewsIngestor {
               continue;
             }
             const url = item.link ?? undefined;
-            const publishedAt = item.isoDate ? Date.parse(item.isoDate) : Date.now();
+            const parsedDate = item.isoDate ? Date.parse(item.isoDate) : NaN;
+            // Malformed dates use ingestion time, just like absent dates.
+            const publishedAt = Number.isFinite(parsedDate) ? parsedDate : Date.now();
             const id = crypto
               .createHash("sha1")
               .update(`${parsed.title}:${title}:${url ?? ""}`)
