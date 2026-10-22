@@ -168,8 +168,19 @@ export class BinanceFuturesClient {
   public async getBalanceState(): Promise<AccountState> {
     const balances = await this.signedGet<BalanceResponse>("/fapi/v3/balance");
     const usdt = balances.find((entry) => entry.asset === "USDT");
-    const equity =
-      Number(usdt?.crossWalletBalance ?? 0) + Number(usdt?.crossUnPnl ?? 0) || Number(usdt?.balance ?? 0);
+    let equity = 0;
+    if (usdt) {
+      for (const field of ["crossWalletBalance", "crossUnPnl"] as const) {
+        const value = usdt[field];
+        if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
+          throw new Error(`Invalid Binance USDT equity component: ${field}`);
+        }
+      }
+      equity = Number(usdt.crossWalletBalance) + Number(usdt.crossUnPnl);
+      if (!Number.isFinite(equity)) {
+        throw new Error("Invalid Binance USDT equity: component sum is not finite");
+      }
+    }
 
     return {
       equity,
