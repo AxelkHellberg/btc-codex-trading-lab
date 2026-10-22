@@ -108,6 +108,14 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+### Backtest overrides
+
+`npm run backtest` replays 90 days by default and starts from `PAPER_STARTING_BALANCE`.
+Override the range with `BACKTEST_DAYS` (positive fractional days are supported), or
+set `BACKTEST_INITIAL_BALANCE` to a positive monetary amount. Both overrides must be
+finite numbers greater than zero; invalid values fail before any market-data request
+or paper-account initialization.
+
 ## Operations
 
 macOS background run:
