@@ -154,7 +154,6 @@ export class MarketIngestor {
     if ("p" in data && "i" in data && "r" in data) {
       next.markPrice = Number(data.p);
       next.indexPrice = Number(data.i);
-      next.lastPrice = Number(data.p);
       next.fundingRate = Number(data.r);
       next.nextFundingTime = Number(data.T);
       next.timestamp = data.E;
