@@ -229,7 +229,14 @@ export class BinanceFuturesClient {
   }
 
   public async startUserStream(): Promise<string> {
-    const response = await this.unsignedPrivatePost<{ listenKey: string }>("/fapi/v1/listenKey");
+    const response = await this.unsignedPrivatePost<unknown>("/fapi/v1/listenKey");
+    if (
+      response === null || typeof response !== "object" || Array.isArray(response) ||
+      !("listenKey" in response) || typeof response.listenKey !== "string" ||
+      response.listenKey.trim().length === 0
+    ) {
+      throw new Error("Invalid Binance listen-key response: expected a non-empty listenKey string");
+    }
     return response.listenKey;
   }
 
