@@ -10,6 +10,14 @@ export class RedisHotStore {
       enableReadyCheck: true,
       lazyConnect: false
     });
+    this.redis.on("error", (error: unknown) => {
+      // Only known transport codes are safe to log; errors can contain URLs or command arguments.
+      const knownCodes = ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EPIPE"];
+      const code = error !== null && typeof error === "object" && "code" in error
+        && typeof error.code === "string" && knownCodes.includes(error.code)
+        ? error.code : "UNKNOWN";
+      this.logger.warn({ code }, "Redis connection error");
+    });
   }
 
   public async setJson(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
