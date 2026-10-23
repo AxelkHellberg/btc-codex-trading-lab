@@ -5,7 +5,7 @@ import type { OnchainSnapshot } from "../domain/types.js";
 import { fetchJson } from "../lib/http.js";
 
 type MempoolResponse = {
-  count: number;
+  count: unknown;
 };
 
 type FeesResponse = {
@@ -58,6 +58,14 @@ export class OnchainIngestor {
       ]);
 
       const now = Date.now();
+      if (
+        mempool === null || typeof mempool !== "object" || Array.isArray(mempool) ||
+        !("count" in mempool) || typeof mempool.count !== "number" ||
+        !Number.isSafeInteger(mempool.count) || mempool.count < 0
+      ) {
+        throw new Error("Invalid /mempool response: mempool.count must be a nonnegative safe integer");
+      }
+
       const blockCadenceSeconds =
         this.lastHeight !== null && this.lastHeightAt !== null && tipHeight > this.lastHeight
           ? (now - this.lastHeightAt) / 1000 / (tipHeight - this.lastHeight)
