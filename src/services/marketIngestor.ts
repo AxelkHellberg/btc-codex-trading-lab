@@ -5,6 +5,28 @@ import type { AppConfig } from "../config.js";
 import type { AccountState, MarketSnapshot, PositionState } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 
+function parseCandle(event: KlineEvent): { close: number; high: number; low: number; volume: number } {
+  const invalid = (field: string): never => { throw new Error(`Invalid Binance kline field: ${field}`); };
+  if (event.e !== "kline") invalid("e");
+  if (!Number.isSafeInteger(event.E) || event.E <= 0) invalid("E");
+  const candle = event.k;
+  if (candle === null || typeof candle !== "object" || Array.isArray(candle)) invalid("k");
+  if (typeof candle.x !== "boolean") invalid("k.x");
+  const decimal = (field: "c" | "h" | "l" | "v"): number => {
+    const value = candle[field];
+    if (typeof value !== "string" || !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) invalid(`k.${field}`);
+    const number = Number(value);
+    if (!Number.isFinite(number) || (field === "v" ? number < 0 : number <= 0)) invalid(`k.${field}`);
+    return number;
+  };
+  const close = decimal("c");
+  const high = decimal("h");
+  const low = decimal("l");
+  const volume = decimal("v");
+  if (low > high || close < low || close > high) invalid("k.priceRange");
+  return { close, high, low, volume };
+}
+
 type MinuteBar = {
   close: number;
   high: number;
@@ -165,16 +187,16 @@ export class MarketIngestor {
         next.bestBid > 0 ? ((next.bestAsk - next.bestBid) / next.bestBid) * 10_000 : 0;
       next.timestamp = data.E;
     } else if ("k" in data) {
-      const close = Number(data.k.c);
+      const { close, high, low, volume } = parseCandle(data);
       next.lastPrice = close;
-      next.volume1m = Number(data.k.v);
+      next.volume1m = volume;
       next.timestamp = data.E;
       if (data.k.x) {
         this.candleHistory.push({
           close,
-          high: Number(data.k.h),
-          low: Number(data.k.l),
-          volume: Number(data.k.v),
+          high,
+          low,
+          volume,
           closeTime: data.E
         });
         this.candleHistory = this.candleHistory.slice(-240);
@@ -182,9 +204,9 @@ export class MarketIngestor {
       this.snapshot = this.applyDerivedMetrics(
         next,
         close,
-        Number(data.k.v),
-        Number(data.k.h),
-        Number(data.k.l)
+        volume,
+        high,
+        low
       );
       await this.callbacks.onMarket(this.snapshot);
       return;
