@@ -74,6 +74,7 @@ export interface OnchainSnapshot {
   halfHourFee: number;
   hourFee: number;
   tipHeight: number;
+  /** Estimated next difficulty change in percent, not progress through the epoch. */
   difficultyAdjustment: number;
   blockCadenceSeconds: number;
   timestamp: number;
