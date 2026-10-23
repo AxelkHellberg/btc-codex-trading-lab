@@ -52,6 +52,21 @@ type CombinedStreamMessage = {
   data: MarkPriceEvent | BookTickerEvent | KlineEvent;
 };
 
+const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+const validateQuoteNumber = (value: unknown, event: string, field: string, positive = false): void => {
+  if (typeof value !== "string" || !decimal.test(value) || !Number.isFinite(Number(value)) ||
+      (positive && Number(value) <= 0)) {
+    throw new Error(`Invalid ${event} field: ${field}`);
+  }
+};
+
+const validateQuoteTime = (value: unknown, event: string, field: string): void => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid ${event} field: ${field}`);
+  }
+};
+
 export class MarketIngestor {
   private marketSocket: WebSocket | null = null;
   private userSocket: WebSocket | null = null;
@@ -151,18 +166,29 @@ export class MarketIngestor {
     const next: MarketSnapshot = { ...this.snapshot };
     const data = payload.data;
 
-    if ("p" in data && "i" in data && "r" in data) {
+    if (data.e === "markPriceUpdate") {
+      validateQuoteNumber(data.p, data.e, "p", true);
+      validateQuoteNumber(data.i, data.e, "i", true);
+      validateQuoteNumber(data.r, data.e, "r");
+      validateQuoteTime(data.T, data.e, "T");
+      validateQuoteTime(data.E, data.e, "E");
       next.markPrice = Number(data.p);
       next.indexPrice = Number(data.i);
       next.lastPrice = Number(data.p);
       next.fundingRate = Number(data.r);
       next.nextFundingTime = Number(data.T);
       next.timestamp = data.E;
-    } else if ("b" in data && "a" in data) {
+    } else if (data.e === "bookTicker") {
+      validateQuoteNumber(data.b, data.e, "b", true);
+      validateQuoteNumber(data.a, data.e, "a", true);
+      validateQuoteTime(data.E, data.e, "E");
+      const spreadBps = ((Number(data.a) - Number(data.b)) / Number(data.b)) * 10_000;
+      if (Number(data.a) < Number(data.b) || !Number.isFinite(spreadBps)) {
+        throw new Error("Invalid bookTicker bid/ask spread");
+      }
       next.bestBid = Number(data.b);
       next.bestAsk = Number(data.a);
-      next.spreadBps =
-        next.bestBid > 0 ? ((next.bestAsk - next.bestBid) / next.bestBid) * 10_000 : 0;
+      next.spreadBps = spreadBps;
       next.timestamp = data.E;
     } else if ("k" in data) {
       const close = Number(data.k.c);
