@@ -130,6 +130,13 @@ Linux VM template:
 - `GET /status`
 - `POST /trigger`
 
+The on-chain snapshot's `difficultyAdjustment` is the estimated percentage change
+at the next difficulty retarget, from the upstream `difficultyChange` field. Zero
+and negative estimates are valid; this is not the percentage of the epoch elapsed.
+Missing, non-numeric, non-finite or out-of-range estimates (outside -75% to +300%)
+reject the poll before its snapshot or cadence baseline changes. Historical stored
+snapshots are not rewritten.
+
 ## CI
 
 GitHub Actions runs:
