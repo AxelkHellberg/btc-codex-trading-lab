@@ -10,6 +10,16 @@ const csvToList = (raw: string): string[] =>
     .map((value) => value.trim())
     .filter(Boolean);
 
+const connectionUrl = (protocols: string[]) =>
+  z.string().url().refine((value) => {
+    try {
+      const url = new URL(value);
+      return protocols.includes(url.protocol) && value.toLowerCase().startsWith(`${url.protocol}//`);
+    } catch {
+      return false;
+    }
+  }, `Expected a connection URL using ${protocols.join(" or ")}`);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_PORT: z.coerce.number().int().positive().default(3000),
@@ -20,8 +30,8 @@ const envSchema = z.object({
   BINANCE_FUTURES_WS_URL: z.string().url().default("wss://fstream.binance.com/stream"),
   BINANCE_API_KEY: z.string().default(""),
   BINANCE_API_SECRET: z.string().default(""),
-  POSTGRES_URL: z.string().default("postgres://postgres:postgres@localhost:5432/trader"),
-  REDIS_URL: z.string().default("redis://localhost:6379"),
+  POSTGRES_URL: connectionUrl(["postgres:", "postgresql:"]).default("postgres://postgres:postgres@localhost:5432/trader"),
+  REDIS_URL: connectionUrl(["redis:", "rediss:"]).default("redis://localhost:6379"),
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_CHAT_ID: z.string().default(""),
   NEWS_FEEDS: z.string().default(""),
