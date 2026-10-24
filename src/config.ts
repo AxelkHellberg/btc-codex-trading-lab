@@ -43,6 +43,17 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value !== "false")
+}).superRefine((env, context) => {
+  if (env.TRADING_MODE !== "live") return;
+  for (const key of ["BINANCE_API_KEY", "BINANCE_API_SECRET"] as const) {
+    if (env[key].trim().length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: "Required in live trading mode"
+      });
+    }
+  }
 });
 
 const parsed = envSchema.parse(process.env);
