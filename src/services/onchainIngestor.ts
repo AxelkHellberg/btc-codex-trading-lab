@@ -63,8 +63,12 @@ export class OnchainIngestor {
           ? (now - this.lastHeightAt) / 1000 / (tipHeight - this.lastHeight)
           : 600;
 
-      this.lastHeight = tipHeight;
-      this.lastHeightAt = now;
+      // Equal-height polls must not shorten the interval between observed blocks.
+      // A lower tip starts a fresh baseline for a reorganization or provider reset.
+      if (tipHeight !== this.lastHeight) {
+        this.lastHeight = tipHeight;
+        this.lastHeightAt = now;
+      }
       this.lastFees = fees.fastestFee;
 
       await this.onSnapshot({
