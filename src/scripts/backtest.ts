@@ -33,6 +33,7 @@ type Candle = {
 
 const days = Number(process.env.BACKTEST_DAYS ?? 90);
 const initialBalance = Number(process.env.BACKTEST_INITIAL_BALANCE ?? config.paperStartingBalance);
+const WARMUP_CANDLES = 60;
 
 const ema = (values: number[], period: number): number => {
   const k = 2 / (period + 1);
@@ -154,6 +155,13 @@ const main = async (): Promise<void> => {
   const endTime = Date.now();
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
   const candles = await fetchHistoricalKlines(client, config.symbol, startTime, endTime);
+  if (candles.length <= WARMUP_CANDLES) {
+    throw new Error(
+      `Insufficient ${config.symbol} 1m history for [${startTime}, ${endTime}]: ` +
+      `received ${candles.length} candles; at least ${WARMUP_CANDLES + 1} required ` +
+      `(${WARMUP_CANDLES} warmup and one evaluable bar).`
+    );
+  }
   const filters = await client.getSymbolFilters(config.symbol);
   let wins = 0;
   let losses = 0;
@@ -161,9 +169,10 @@ const main = async (): Promise<void> => {
   let exits = 0;
   let peakEquity = initialBalance;
   let maxDrawdown = 0;
+  let evaluatedBars = 0;
 
-  for (let index = 60; index < candles.length; index += 1) {
-    const window = candles.slice(Math.max(0, index - 60), index + 1);
+  for (let index = WARMUP_CANDLES; index < candles.length; index += 1) {
+    const window = candles.slice(Math.max(0, index - WARMUP_CANDLES), index + 1);
     const current = window[window.length - 1]!;
     const closes = window.map((candle) => candle.close);
     const intradayWindow = window.slice(-Math.min(window.length, 24 * 60));
@@ -201,6 +210,7 @@ const main = async (): Promise<void> => {
       filters
     };
     const paperState = await broker.onMarketSnapshot?.(marketSnapshot);
+    evaluatedBars += 1;
     if (paperState?.accepted && paperState.tradeRecord?.status === "closed") {
       exits += 1;
       const netPnl = paperState.tradeRecord.netPnl;
@@ -315,6 +325,8 @@ const main = async (): Promise<void> => {
     {
       symbol: config.symbol,
       days,
+      receivedCandles: candles.length,
+      evaluatedBars,
       entries,
       exits,
       wins,
