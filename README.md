@@ -51,6 +51,13 @@ Runtime flow:
 6. Execute only if the plan clears all hard checks
 7. Persist decisions, trade lifecycle, and account state
 
+Each decision uses at most ten cached news events published within the preceding
+24 hours. Eligibility is checked when building the context, including during feed
+outages; events exactly 24 hours old, future-dated events, and invalid timestamps
+are excluded from both model inputs and catalyst sentiment. When no eligible
+headlines remain, catalyst bias is neutral. The recent-news cache remains available
+for historical inspection.
+
 ## Stack
 
 - Node.js 22
