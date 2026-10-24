@@ -352,6 +352,14 @@ export class PaperBroker implements Broker {
     const cumulativeGross = (this.position.grossRealizedPnl ?? 0) + grossPnl;
     const cumulativeNet = (this.position.netRealizedPnl ?? -(this.position.entryFee ?? 0)) + netPnl;
 
+    // Preserve the final levels before a full close clears the live position.
+    const protectionLevels = {
+      stopLoss: this.position.stopLoss,
+      takeProfit: this.position.takeProfit,
+      tp1: this.position.tp1,
+      tp2: this.position.tp2
+    };
+
     if (remainingQty <= 0.0000001) {
       this.position = {
         side: "flat",
@@ -378,7 +386,7 @@ export class PaperBroker implements Broker {
     }
 
     this.markToMarket(market.markPrice);
-    this.syncActiveTrade(reason, closeQty, grossPnl, fee, netPnl, remainingQty, exitPrice, now);
+    this.syncActiveTrade(reason, closeQty, grossPnl, fee, netPnl, remainingQty, exitPrice, now, protectionLevels);
 
     return {
       tradeId,
@@ -403,7 +411,8 @@ export class PaperBroker implements Broker {
     netPnl: number,
     remainingQuantity: number,
     exitPrice: number,
-    now: number
+    now: number,
+    protectionLevels: Pick<PositionState, "stopLoss" | "takeProfit" | "tp1" | "tp2">
   ): void {
     if (!this.activeTrade) {
       return;
@@ -413,10 +422,7 @@ export class PaperBroker implements Broker {
     this.activeTrade = {
       ...this.activeTrade,
       remainingQuantity: Math.max(0, remainingQuantity),
-      stopLoss: this.position.stopLoss,
-      takeProfit: this.position.takeProfit,
-      tp1: this.position.tp1,
-      tp2: this.position.tp2,
+      ...protectionLevels,
       status: closed ? "closed" : "partial",
       exitReason: closed ? reason : this.activeTrade.exitReason,
       exitFee: this.activeTrade.exitFee + fee,
