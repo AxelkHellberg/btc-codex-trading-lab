@@ -98,10 +98,10 @@ export class CodexDecisionWorker {
 
   private async runViaCli(prompt: string): Promise<unknown> {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "btc-codex-schema-"));
-    const schemaPath = path.join(tempDir, "strategy-signal.schema.json");
-    await writeFile(schemaPath, JSON.stringify(strategySignalJsonSchema), "utf8");
 
     try {
+      const schemaPath = path.join(tempDir, "strategy-signal.schema.json");
+      await writeFile(schemaPath, JSON.stringify(strategySignalJsonSchema), "utf8");
       const finalResponse = await new Promise<string>((resolve, reject) => {
         const child = spawn(
           path.join(process.cwd(), "node_modules", ".bin", "codex"),
