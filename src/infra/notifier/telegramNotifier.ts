@@ -14,8 +14,9 @@ export class TelegramNotifier {
     }
 
     try {
-      await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
         method: "POST",
+        signal: AbortSignal.timeout(10_000),
         headers: {
           "content-type": "application/json"
         },
@@ -24,8 +25,17 @@ export class TelegramNotifier {
           text: message
         })
       });
+      // Delivery needs only the status; discard the body without delaying the caller.
+      void response.body?.cancel().catch(() => {});
+      if (!response.ok) {
+        this.logger.warn({ status: response.status }, "Telegram notification rejected");
+      }
     } catch (error) {
-      this.logger.warn({ error }, "Failed to send Telegram notification");
+      // Fetch errors can include the credential-bearing URL. Retain only the class.
+      this.logger.warn(
+        { errorName: error instanceof Error ? error.name : "UnknownError" },
+        "Failed to send Telegram notification"
+      );
     }
   }
 }
