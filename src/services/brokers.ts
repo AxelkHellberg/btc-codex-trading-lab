@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import type { Logger } from "pino";
 
@@ -520,6 +520,21 @@ export class LiveBroker implements Broker {
   public async execute(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
     const tradeId = context.position_state.sourceTradeId ?? randomUUID();
 
+    // Each execution intent gets fresh exchange IDs; internal trade IDs may be
+    // longer or contain characters that Binance does not accept.
+    const orderToken = randomBytes(15).toString("hex");
+    const orderIds = {
+      entry: `entry-${orderToken}`,
+      stop: `stop-${orderToken}`,
+      tp: `tp-${orderToken}`,
+      close: `close-${orderToken}`
+    };
+    for (const id of Object.values(orderIds)) {
+      if (!/^[.A-Z:/a-z0-9_-]{1,36}$/.test(id)) {
+        throw new Error("Invalid Binance client order ID");
+      }
+    }
+
     if (plan.action === "LONG" || plan.action === "SHORT") {
       await this.client.changeLeverage(this.config.symbol, plan.leverage);
       const openOrder = await this.client.createOrder({
@@ -528,7 +543,7 @@ export class LiveBroker implements Broker {
         type: "MARKET",
         quantity: plan.quantity,
         newOrderRespType: "RESULT",
-        newClientOrderId: `entry-${tradeId}`
+        newClientOrderId: orderIds.entry
       });
       if (plan.stopLoss !== undefined) {
         await this.client.createOrder({
@@ -539,7 +554,7 @@ export class LiveBroker implements Broker {
           quantity: plan.quantity,
           reduceOnly: true,
           workingType: "CONTRACT_PRICE",
-          newClientOrderId: `stop-${tradeId}`
+          newClientOrderId: orderIds.stop
         });
       }
       if (plan.tp2 !== undefined) {
@@ -551,7 +566,7 @@ export class LiveBroker implements Broker {
           quantity: plan.quantity,
           reduceOnly: true,
           workingType: "CONTRACT_PRICE",
-          newClientOrderId: `tp-${tradeId}`
+          newClientOrderId: orderIds.tp
         });
       }
       const [accountState, positionState] = await Promise.all([
@@ -613,7 +628,7 @@ export class LiveBroker implements Broker {
       quantity: plan.quantity,
       reduceOnly: true,
       newOrderRespType: "RESULT",
-      newClientOrderId: `close-${tradeId}`
+      newClientOrderId: orderIds.close
     });
     const [accountState, positionState] = await Promise.all([
       this.client.getBalanceState(),
