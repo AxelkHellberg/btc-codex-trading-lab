@@ -152,9 +152,11 @@ const main = async (): Promise<void> => {
   });
   const planner = new StrategyPlanner(config);
   const riskEngine = new RiskEngine(config);
-  const endTime = Date.now();
-  const startTime = endTime - days * 24 * 60 * 60 * 1000;
-  const candles = await fetchHistoricalKlines(client, config.symbol, startTime, endTime);
+  const cutoff = Date.now();
+  const endTime = Math.floor(cutoff / 60_000) * 60_000 - 1;
+  const startTime = cutoff - days * 24 * 60 * 60 * 1000;
+  const candles = (await fetchHistoricalKlines(client, config.symbol, startTime, endTime))
+    .filter((candle) => candle.closeTime <= endTime);
   if (candles.length <= WARMUP_CANDLES) {
     throw new Error(
       `Insufficient ${config.symbol} 1m history for [${startTime}, ${endTime}]: ` +

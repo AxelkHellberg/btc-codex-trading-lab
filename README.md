@@ -114,6 +114,12 @@ filter lookup and does not emit a successful summary. Successful summaries
 include `receivedCandles` and `evaluatedBars` so short replays are visible. A
 replay that evaluates bars but opens no trades remains valid.
 
+The run captures one cutoff and requests history only through the last fully
+closed one-minute boundary. Returned candles closing after that boundary are
+excluded before warmup validation and replay, even if pagination crosses into a
+later minute. Provisional current-minute bars never reach strategy or broker
+lifecycle evaluation.
+
 ## Operations
 
 macOS background run:
