@@ -108,6 +108,12 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+The historical backtest needs at least 61 one-minute candles: 60 for warmup and
+one for evaluation. Insufficient history exits with an error before exchange
+filter lookup and does not emit a successful summary. Successful summaries
+include `receivedCandles` and `evaluatedBars` so short replays are visible. A
+replay that evaluates bars but opens no trades remains valid.
+
 ## Operations
 
 macOS background run:
