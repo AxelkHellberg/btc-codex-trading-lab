@@ -57,7 +57,7 @@ describe("backtest history requirement", () => {
     expect(error.message).toContain(`received ${count}`);
     expect(error.message).toContain("at least 61");
     expect(error.message).toContain(String(now - 86_400_000));
-    expect(error.message).toContain(String(now));
+    expect(error.message).toContain(String(now - 1));
   });
 
   it.each([61, 62])("reports coverage for a valid %i-candle zero-trade replay", async (count) => {
