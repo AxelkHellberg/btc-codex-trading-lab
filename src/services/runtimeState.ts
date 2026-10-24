@@ -12,6 +12,8 @@ import type {
   RiskState
 } from "../domain/types.js";
 
+const DECISION_NEWS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export class RuntimeState {
   private latestMarket: MarketSnapshot | null = null;
   private latestOnchain: OnchainSnapshot | null = null;
@@ -145,7 +147,11 @@ export class RuntimeState {
       return null;
     }
 
-    const latestNews = this.news.slice(0, 10);
+    const now = Date.now();
+    const latestNews = this.news
+      .filter((event) => Number.isFinite(event.publishedAt) &&
+        event.publishedAt <= now && now - event.publishedAt < DECISION_NEWS_MAX_AGE_MS)
+      .slice(0, 10);
     const weightedSentiment = latestNews.reduce(
       (accumulator, event) => accumulator + event.sentimentScore * event.relevanceScore,
       0
@@ -182,7 +188,7 @@ export class RuntimeState {
         open_interest_change_pct_1m: this.latestMarket.openInterestChangePct1m,
         top_trader_long_short_ratio: this.latestMarket.topTraderLongShortRatio
       },
-      news_events: this.news.slice(0, 10),
+      news_events: latestNews,
       onchain_snapshot: this.latestOnchain,
       position_state: this.getPosition(),
       account_state: this.getAccount(),
