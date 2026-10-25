@@ -108,6 +108,14 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+The backtest leaves any remaining position open at the replay boundary and reports
+its mark-to-market state; it does not simulate a final liquidation. The completion
+log includes initial balance, final equity and wallet balance, unrealized PnL,
+remaining position, and `totalEquityReturn` as a fraction of initial balance.
+Equity return includes fees already charged by the paper broker. Win/loss counts
+and win rate cover closed trades only, so an unfinished position is reported
+separately even when it is profitable or losing.
+
 ## Operations
 
 macOS background run:
