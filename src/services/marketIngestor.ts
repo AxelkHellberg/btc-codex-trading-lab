@@ -120,6 +120,14 @@ export class MarketIngestor {
     this.userSocket = this.client.connectUserStream(this.listenKey, (event) => {
       void this.handleUserStreamEvent(event);
     });
+    this.userSocket.on("error", (error: unknown) => {
+      // Socket messages can include the private listen-key URL. Log only known codes.
+      const suppliedCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      const code = typeof suppliedCode === "string" &&
+        ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EPIPE"].includes(suppliedCode)
+        ? suppliedCode : "WEBSOCKET_ERROR";
+      this.logger.warn({ code }, "User stream websocket transport error");
+    });
     this.userSocket.on("close", () => {
       this.logger.warn("User stream websocket closed; refreshing listenKey");
       setTimeout(() => {
