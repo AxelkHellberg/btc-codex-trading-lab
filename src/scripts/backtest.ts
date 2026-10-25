@@ -311,6 +311,7 @@ const main = async (): Promise<void> => {
     maxDrawdown = Math.max(maxDrawdown, peakEquity > 0 ? (peakEquity - equity) / peakEquity : 0);
   }
 
+  const { accountState, positionState } = broker.getState();
   logger.info(
     {
       symbol: config.symbol,
@@ -320,7 +321,19 @@ const main = async (): Promise<void> => {
       wins,
       losses,
       winRate: exits > 0 ? wins / exits : 0,
-      maxDrawdown
+      maxDrawdown,
+      initialBalance,
+      finalEquity: accountState.equity,
+      finalWalletBalance: accountState.walletBalance,
+      unrealizedPnl: positionState.unrealizedPnl,
+      totalEquityReturn: (accountState.equity - initialBalance) / initialBalance,
+      terminalPositionPolicy: "leave_open_mark_to_market",
+      remainingPosition: {
+        side: positionState.side,
+        quantity: positionState.quantity,
+        entryPrice: positionState.entryPrice,
+        markPrice: positionState.markPrice
+      }
     },
     "Backtest completed"
   );
