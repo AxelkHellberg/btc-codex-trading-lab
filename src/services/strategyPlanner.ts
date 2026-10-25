@@ -7,6 +7,7 @@ import type {
   TradeAction
 } from "../domain/types.js";
 import { clamp, normalizeQuantity, roundToTick } from "../lib/math.js";
+import { entrySizingReasons } from "../lib/entryValidation.js";
 
 export interface PlanningResult {
   normalizedSignal: StrategySignal;
@@ -43,6 +44,14 @@ export class StrategyPlanner {
     }
 
     const reasons: string[] = [];
+    reasons.push(...entrySizingReasons(context, this.config));
+    if (!Number.isFinite(signal.invalidation_price) || (signal.invalidation_price ?? 0) <= 0) {
+      reasons.push("invalid entry invalidation_price: expected a finite positive number");
+    }
+    if (!Number.isFinite(signal.confidence) || !Number.isFinite(signal.holding_horizon_minutes)) {
+      reasons.push("invalid entry signal numeric fields");
+    }
+    if (reasons.length > 0) return { normalizedSignal, reasons };
     const alignment = this.assessAlignment(context, normalizedSignal);
     reasons.push(...alignment.reasons);
 
@@ -86,8 +95,9 @@ export class StrategyPlanner {
     const capitalBySize = context.account_state.equity * sizePct * leverage;
     const allowedNotional = Math.min(capitalByRisk, capitalBySize);
     const quantity = normalizeQuantity(allowedNotional / entryPrice, context.market_snapshot.filters);
-    if (quantity <= 0) {
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(quantity * entryPrice)) {
       reasons.push("calculated quantity is below exchange minimum");
+      return { normalizedSignal, reasons };
     }
 
     const side = isLong ? "BUY" : "SELL";

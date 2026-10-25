@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config.js";
 import type { DecisionContext, ExecutionPlan, RiskEvaluation, StrategySignal } from "../domain/types.js";
 import { normalizeQuantity, riskRewardRatio } from "../lib/math.js";
+import { entryPlanReasons, entrySizingReasons } from "../lib/entryValidation.js";
 import type { PlanningResult } from "./strategyPlanner.js";
 
 export class RiskEngine {
@@ -84,6 +85,10 @@ export class RiskEngine {
     executionPlan: ExecutionPlan,
     reasons: string[]
   ): RiskEvaluation {
+    const invalidNumbers = [...entrySizingReasons(context, this.config), ...entryPlanReasons(executionPlan)];
+    if (invalidNumbers.length > 0) {
+      return { approved: false, reasons: unique([...reasons, ...invalidNumbers]), normalizedSignal };
+    }
     if (context.position_state.side !== "flat") {
       reasons.push("max one open position allowed");
     }

@@ -15,6 +15,7 @@ import type {
 } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 import { estimateSlippagePrice, roundToTick, signedPnl } from "../lib/math.js";
+import { entryPlanReasons, entrySizingReasons } from "../lib/entryValidation.js";
 
 export interface Broker {
   readonly name: string;
@@ -56,6 +57,17 @@ export class PaperBroker implements Broker {
 
   public async execute(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
     if (plan.action === "LONG" || plan.action === "SHORT") {
+      const reasons = [...entrySizingReasons(context, this.config), ...entryPlanReasons(plan)];
+      const fillPrice = estimateSlippagePrice(context.market_snapshot.markPrice, this.config.slippageBps, plan.side);
+      const fee = fillPrice * plan.quantity * (this.config.takerFeeBps / 10_000);
+      if (!Number.isFinite(fillPrice) || fillPrice <= 0 || !Number.isFinite(fee) || fee < 0 ||
+          !Number.isFinite(fillPrice * plan.quantity) || !Number.isFinite(fillPrice * plan.quantity / plan.leverage)) {
+        reasons.push("invalid entry fill or fee arithmetic");
+      }
+      if (reasons.length > 0) {
+        return { tradeId: randomUUID(), accepted: false, broker: this.name,
+          message: reasons.join("; "), ...this.getState() };
+      }
       return this.openPosition(plan, context.market_snapshot);
     }
 
@@ -521,6 +533,11 @@ export class LiveBroker implements Broker {
     const tradeId = context.position_state.sourceTradeId ?? randomUUID();
 
     if (plan.action === "LONG" || plan.action === "SHORT") {
+      const reasons = [...entrySizingReasons(context, this.config), ...entryPlanReasons(plan)];
+      if (reasons.length > 0) {
+        return { tradeId, accepted: false, broker: this.name, message: reasons.join("; "),
+          accountState: { ...context.account_state }, positionState: { ...context.position_state } };
+      }
       await this.client.changeLeverage(this.config.symbol, plan.leverage);
       const openOrder = await this.client.createOrder({
         symbol: this.config.symbol,
