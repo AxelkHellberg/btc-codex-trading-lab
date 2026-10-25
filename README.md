@@ -110,6 +110,13 @@ Useful commands:
 
 ## Operations
 
+Runtime Redis operations have a five-second total budget, including readiness,
+command replies, and QUIT during shutdown. A failed operation disconnects the
+client and rejects later work until the process is restarted. Commands are not
+queued offline, reconnected, or automatically replayed. A timeout can still mean
+the server applied a write; in particular, a timed-out lock request never grants
+permission to continue, and its token/TTL may remain on the server until expiry.
+
 macOS background run:
 
 - `./scripts/run-daemon.sh`

@@ -6,6 +6,8 @@ type RedisDouble = EventEmitter & {
   set: ReturnType<typeof vi.fn>;
   eval: ReturnType<typeof vi.fn>;
   quit: ReturnType<typeof vi.fn>;
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
 };
 const doubles = vi.hoisted(() => ({ clients: [] as RedisDouble[] }));
 vi.mock("ioredis", () => ({
@@ -13,6 +15,8 @@ vi.mock("ioredis", () => ({
     set = vi.fn().mockResolvedValue("OK");
     eval = vi.fn().mockResolvedValue(1);
     quit = vi.fn().mockResolvedValue("OK");
+    connect = vi.fn().mockResolvedValue(undefined);
+    disconnect = vi.fn();
     constructor() { super(); doubles.clients.push(this); }
   }
 }));
@@ -53,8 +57,10 @@ describe("RedisHotStore connection errors", () => {
     client.set.mockRejectedValue(failure);
     client.eval.mockRejectedValue(failure);
     await expect(store.setJson("snapshot", { value: 1 })).rejects.toBe(failure);
-    await expect(store.acquireLock("lock", "token", 1000)).rejects.toBe(failure);
-    await expect(store.releaseLock("lock", "token")).rejects.toBe(failure);
+    await expect(store.acquireLock("lock", "token", 1000)).rejects.toThrow("Redis store unavailable");
+    await expect(store.releaseLock("lock", "token")).rejects.toThrow("Redis store unavailable");
+    expect(client.disconnect).toHaveBeenCalledWith(false);
+    expect(client.eval).not.toHaveBeenCalled();
   });
 
   it("retains normal writes, lock acquisition and shutdown", async () => {
