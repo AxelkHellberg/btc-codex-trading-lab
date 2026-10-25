@@ -8,6 +8,9 @@ export class PostgresStateStore {
 
   public constructor(connectionString: string, private readonly logger: Logger) {
     this.pool = new Pool({ connectionString });
+    this.pool.on("error", (error: Error) => {
+      this.logger.warn({ error }, "Idle Postgres client error");
+    });
   }
 
   public async init(): Promise<void> {
