@@ -110,6 +110,10 @@ Useful commands:
 
 ## Operations
 
+PostgreSQL connection establishment and waits for a free pooled client have a
+five-second acquisition timeout. Failures reject the calling operation without
+retrying writes. This acquisition budget does not limit SQL execution time.
+
 macOS background run:
 
 - `./scripts/run-daemon.sh`

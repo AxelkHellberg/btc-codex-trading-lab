@@ -7,7 +7,7 @@ export class PostgresStateStore {
   private readonly pool: Pool;
 
   public constructor(connectionString: string, private readonly logger: Logger) {
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({ connectionString, connectionTimeoutMillis: 5_000 });
   }
 
   public async init(): Promise<void> {
