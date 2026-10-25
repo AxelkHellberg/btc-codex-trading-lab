@@ -5,6 +5,7 @@ import { Client } from "pg";
 
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { probeAppHealth } from "./appHealth.js";
 
 const run = async (command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> =>
   new Promise((resolve, reject) => {
@@ -26,7 +27,6 @@ const main = async (): Promise<void> => {
   const redis = new Redis(config.redisUrl);
   let postgres = "down";
   let redisState = "down";
-  let app = "down";
   let binance = "down";
 
   try {
@@ -47,13 +47,7 @@ const main = async (): Promise<void> => {
     await redis.quit().catch(() => undefined);
   }
 
-  try {
-    const response = await fetch(`http://127.0.0.1:${config.port}/healthz`);
-    const payload = (await response.json()) as { ok?: boolean };
-    app = payload.ok ? "ok" : "down";
-  } catch {
-    app = "down";
-  }
+  const appHealth = await probeAppHealth(`http://127.0.0.1:${config.port}/healthz`);
 
   try {
     const response = await fetch(`${config.binance.restBaseUrl}/fapi/v1/premiumIndex?symbol=${config.symbol}`);
@@ -63,7 +57,8 @@ const main = async (): Promise<void> => {
   }
 
   const checks = {
-    app,
+    app: appHealth.state,
+    app_health: appHealth,
     postgres,
     redis: redisState,
     binance,
