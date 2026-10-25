@@ -95,6 +95,54 @@ const buildContext = (overrides?: Partial<DecisionContext["context_summary"]>): 
 });
 
 describe("RiskEngine", () => {
+  const signal = (bias: "LONG" | "SHORT" | "CLOSE" | "REDUCE") => ({
+    bias,
+    confidence: 0.62,
+    setup_type: "breakout" as const,
+    invalidation_price: bias === "SHORT" ? 101_000 : 99_000,
+    holding_horizon_minutes: 90,
+    reasoning_summary: "Risk guardrail regression."
+  });
+
+  it.each(["CLOSE", "REDUCE"] as const)("allows %s under loss, drawdown and cooldown limits", (action) => {
+    const context = buildContext();
+    context.risk_state.withinDailyLossLimit = false;
+    context.risk_state.withinWeeklyDrawdown = false;
+    context.risk_state.cooldownActive = true;
+    context.position_state = { ...context.position_state, side: "long", quantity: 0.02, entryPrice: 100_000 };
+    const planning = new StrategyPlanner(config).plan(context, signal(action));
+    const result = new RiskEngine(config).evaluate(context, planning);
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
+    expect(result.executionPlan?.quantity).toBe(action === "CLOSE" ? 0.02 : 0.01);
+  });
+
+  it.each(["LONG", "SHORT"] as const)("keeps account guardrails for %s entries", (action) => {
+    const context = buildContext(action === "SHORT" ? { regime: "trend_down", trend_bias: "bearish" } : undefined);
+    context.risk_state.withinDailyLossLimit = false;
+    context.risk_state.withinWeeklyDrawdown = false;
+    context.risk_state.cooldownActive = true;
+    const result = new RiskEngine(config).evaluate(context, new StrategyPlanner(config).plan(context, signal(action)));
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      "daily loss limit reached", "weekly drawdown exceeded", "cooldown active after losses"
+    ]));
+  });
+
+  it("still rejects exits without a position or with a zero rounded reduction", () => {
+    const context = buildContext();
+    context.risk_state.withinDailyLossLimit = false;
+    const planner = new StrategyPlanner(config);
+    const engine = new RiskEngine(config);
+    expect(engine.evaluate(context, planner.plan(context, signal("CLOSE"))).approved).toBe(false);
+    context.position_state = { ...context.position_state, side: "long", quantity: 0.02 };
+    const planning = planner.plan(context, signal("REDUCE"));
+    planning.plan!.quantity = 0.0001;
+    const result = engine.evaluate(context, planning);
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("reduction quantity rounds to zero");
+  });
+
   it("approves a valid trend-aligned long plan", () => {
     const planner = new StrategyPlanner(config);
     const engine = new RiskEngine(config);

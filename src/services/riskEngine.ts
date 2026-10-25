@@ -11,16 +11,6 @@ export class RiskEngine {
     const normalizedSignal = planning.normalizedSignal;
     const executionPlan = planning.plan;
 
-    if (!context.risk_state.withinDailyLossLimit) {
-      reasons.push("daily loss limit reached");
-    }
-    if (!context.risk_state.withinWeeklyDrawdown) {
-      reasons.push("weekly drawdown exceeded");
-    }
-    if (context.risk_state.cooldownActive && (normalizedSignal.bias === "LONG" || normalizedSignal.bias === "SHORT")) {
-      reasons.push("cooldown active after losses");
-    }
-
     if (normalizedSignal.bias === "FLAT") {
       reasons.push("signal chose FLAT");
       return {
@@ -40,6 +30,16 @@ export class RiskEngine {
 
     if (normalizedSignal.bias === "CLOSE" || normalizedSignal.bias === "REDUCE") {
       return this.evaluateExit(context, normalizedSignal, executionPlan, reasons);
+    }
+
+    if (!context.risk_state.withinDailyLossLimit) {
+      reasons.push("daily loss limit reached");
+    }
+    if (!context.risk_state.withinWeeklyDrawdown) {
+      reasons.push("weekly drawdown exceeded");
+    }
+    if (context.risk_state.cooldownActive) {
+      reasons.push("cooldown active after losses");
     }
 
     return this.evaluateEntry(context, normalizedSignal, executionPlan, reasons);
