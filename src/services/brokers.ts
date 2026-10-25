@@ -335,6 +335,9 @@ export class PaperBroker implements Broker {
       };
     }
 
+    // Excursions use the observed mark and exposure before any exit fill.
+    this.markToMarket(market.markPrice);
+
     const closeQty = Math.min(plan.quantity, this.position.quantity);
     const exitPrice = estimateSlippagePrice(market.markPrice, this.config.slippageBps, plan.side);
     const grossPnl = signedPnl(this.position.side, this.position.entryPrice, exitPrice, closeQty);

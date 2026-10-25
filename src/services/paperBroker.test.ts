@@ -153,3 +153,96 @@ describe("PaperBroker", () => {
     expect(close?.positionState.side).toBe("flat");
   });
 });
+
+describe("PaperBroker exit excursions", () => {
+  const cases = [
+    { action: "LONG", side: "BUY", exitSide: "SELL", mark: 101_000, mfe: 20, mae: 0, pnl: 20 },
+    { action: "LONG", side: "BUY", exitSide: "SELL", mark: 99_000, mfe: 0, mae: 20, pnl: -20 },
+    { action: "SHORT", side: "SELL", exitSide: "BUY", mark: 99_000, mfe: 20, mae: 0, pnl: 20 },
+    { action: "SHORT", side: "SELL", exitSide: "BUY", mark: 101_000, mfe: 0, mae: 20, pnl: -20 }
+  ] as const;
+
+  const openPlan = (item: (typeof cases)[number]): ExecutionPlan => ({
+    action: item.action,
+    side: item.side,
+    entryType: "MARKET",
+    quantity: 0.02,
+    leverage: 2,
+    notionalUsd: 2_000,
+    entryPrice: 100_000,
+    stopLoss: item.action === "LONG" ? 90_000 : 110_000,
+    tp2: item.action === "LONG" ? 120_000 : 80_000,
+    confidence: 0.8
+  });
+
+  for (const tickFirst of [false, true]) {
+    it.each(cases)(`samples $action exit at $mark (preceding tick: ${tickFirst})`, async (item) => {
+      const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+      const plan = openPlan(item);
+      await broker.execute(plan, context());
+      const exitContext = context();
+      exitContext.market_snapshot.markPrice = item.mark;
+      if (tickFirst) {
+        expect(await broker.onMarketSnapshot(exitContext.market_snapshot)).toBeNull();
+      }
+      const result = await broker.execute({ ...plan, action: "CLOSE", side: item.exitSide }, exitContext);
+      expect(result.tradeRecord).toMatchObject({
+        status: "closed", mfe: item.mfe, mae: item.mae,
+        grossPnl: item.pnl, netPnl: item.pnl, entryFee: 0, exitFee: 0, remainingQuantity: 0
+      });
+      expect(result.positionState).toMatchObject({ side: "flat", quantity: 0 });
+    });
+  }
+
+  it.each(cases)("samples full $action exposure before reducing at $mark", async (item) => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    const plan = openPlan(item);
+    await broker.execute(plan, context());
+    const exitContext = context();
+    exitContext.market_snapshot.markPrice = item.mark;
+    const result = await broker.execute({
+      ...plan, action: "REDUCE", side: item.exitSide, quantity: 0.01
+    }, exitContext);
+    expect(result.tradeRecord).toMatchObject({
+      status: "partial", mfe: item.mfe, mae: item.mae,
+      grossPnl: item.pnl / 2, netPnl: item.pnl / 2, remainingQuantity: 0.01
+    });
+    expect(result.positionState.quantity).toBeCloseTo(0.01);
+    exitContext.market_snapshot.markPrice = 100_000;
+    const closed = await broker.execute({ ...plan, action: "CLOSE", side: item.exitSide }, exitContext);
+    expect(closed.tradeRecord).toMatchObject({ status: "closed", mfe: item.mfe, mae: item.mae });
+  });
+
+  it.each(["LONG", "SHORT"] as const)("retains larger earlier extrema on a direct %s close", async (action) => {
+    const item = cases.find((candidate) => candidate.action === action)!;
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    const plan = openPlan(item);
+    await broker.execute(plan, context());
+    await broker.onMarketSnapshot({ ...context().market_snapshot, markPrice: 102_000 });
+    await broker.onMarketSnapshot({ ...context().market_snapshot, markPrice: 98_000 });
+    const exitContext = context();
+    exitContext.market_snapshot.markPrice = 101_000;
+    const closed = await broker.execute({ ...plan, action: "CLOSE", side: item.exitSide }, exitContext);
+    expect(closed.tradeRecord).toMatchObject({ status: "closed", mfe: 40, mae: 40 });
+  });
+
+  it("keeps excursions mark-based while exit PnL uses slippage and fees", async () => {
+    const broker = new PaperBroker({ ...config, slippageBps: 10, takerFeeBps: 4 });
+    const item = cases[0];
+    const plan = openPlan(item);
+    const opened = await broker.execute(plan, context());
+    const exitContext = context();
+    exitContext.market_snapshot.markPrice = 101_000;
+    const closed = await broker.execute({ ...plan, action: "CLOSE", side: "SELL" }, exitContext);
+    const entry = opened.positionState.entryPrice;
+    const exit = 101_000 * (1 - 10 / 10_000);
+    const gross = (exit - entry) * plan.quantity;
+    const entryFee = entry * plan.quantity * 4 / 10_000;
+    const exitFee = exit * plan.quantity * 4 / 10_000;
+    expect(closed.tradeRecord?.mfe).toBeCloseTo((101_000 - entry) * plan.quantity);
+    expect(closed.tradeRecord?.grossPnl).toBeCloseTo(gross);
+    expect(closed.tradeRecord?.entryFee).toBeCloseTo(entryFee);
+    expect(closed.tradeRecord?.exitFee).toBeCloseTo(exitFee);
+    expect(closed.tradeRecord?.netPnl).toBeCloseTo(gross - entryFee - exitFee);
+  });
+});
