@@ -65,6 +65,11 @@ Runtime flow:
 
 ## Safety model
 
+New entries require finite positive sizing inputs and valid supplied exchange
+increments. The risk engine and both brokers reject invalid numeric entry plans
+before balance changes or live entry requests. These entry checks do not impose
+entry-only equity or protection-field requirements on CLOSE/REDUCE decisions.
+
 - The model cannot bypass the risk engine
 - The model does not control final leverage, size, stop placement, or take-profit placement
 - Paper mode and live mode share the same orchestration path
