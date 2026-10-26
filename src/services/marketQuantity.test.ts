@@ -100,6 +100,7 @@ describe("market entry quantity filters", () => {
 
   it("accepts an exact decimal grid despite binary arithmetic noise", () => {
     const c = context({ ...filters({ minQty: 0.1, maxQty: 1, stepSize: 0.1 }), minQty: 0.1, stepSize: 0.1 });
+    c.account_state.equity = 100_000;
     const result = planning(c, "LONG");
     result.reasons = [];
     result.plan = { ...result.plan!, quantity: 0.3 };
