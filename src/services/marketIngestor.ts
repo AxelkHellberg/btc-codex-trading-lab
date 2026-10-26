@@ -219,6 +219,7 @@ export class MarketIngestor {
         fundingRate: mark.fundingRate,
         nextFundingTime: mark.nextFundingTime,
         openInterest,
+        openInterestObservedAt: Date.now(),
         openInterestChangePct1m:
           this.lastOpenInterest > 0 ? ((openInterest - this.lastOpenInterest) / this.lastOpenInterest) * 100 : 0,
         topTraderLongShortRatio: ratio,

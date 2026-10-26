@@ -2,6 +2,7 @@ import type { EvaluationTrigger, MarketSnapshot, NewsEvent, OnchainSnapshot } fr
 
 export class EventDetector {
   private readonly lastTriggered = new Map<string, number>();
+  private readonly consumedOpenInterest = new Map<string, string>();
 
   public constructor(
     private readonly onTrigger: (trigger: EvaluationTrigger) => Promise<void> | void,
@@ -18,13 +19,27 @@ export class EventDetector {
       });
     }
 
-    if (Math.abs(snapshot.openInterestChangePct1m) >= 0.25) {
-      await this.emit({
-        reason: "open_interest_spike",
-        priority: 2,
-        details: `open interest delta ${snapshot.openInterestChangePct1m.toFixed(2)}%`,
-        triggeredAt: Date.now()
-      });
+    const observation = snapshot.openInterestObservedAt !== undefined
+      ? String(snapshot.openInterestObservedAt)
+      : `${snapshot.openInterest}:${snapshot.openInterestChangePct1m}`;
+    const previousObservation = this.consumedOpenInterest.get(snapshot.symbol);
+    if (Math.abs(snapshot.openInterestChangePct1m) >= 0.25 && observation !== previousObservation) {
+      // Reserve before awaiting dispatch so simultaneous frames cannot reuse it.
+      this.consumedOpenInterest.set(snapshot.symbol, observation);
+      try {
+        const emitted = await this.emit({
+          reason: "open_interest_spike",
+          priority: 2,
+          details: `open interest delta ${snapshot.openInterestChangePct1m.toFixed(2)}%`,
+          triggeredAt: Date.now()
+        });
+        if (!emitted) {
+          this.restoreOpenInterest(snapshot.symbol, observation, previousObservation);
+        }
+      } catch (error) {
+        this.restoreOpenInterest(snapshot.symbol, observation, previousObservation);
+        throw error;
+      }
     }
 
     if (Math.abs(snapshot.fundingRate) >= 0.0002) {
@@ -75,14 +90,26 @@ export class EventDetector {
     });
   }
 
-  private async emit(trigger: EvaluationTrigger): Promise<void> {
+  private restoreOpenInterest(symbol: string, observation: string, previous: string | undefined): void {
+    if (this.consumedOpenInterest.get(symbol) !== observation) {
+      return;
+    }
+    if (previous === undefined) {
+      this.consumedOpenInterest.delete(symbol);
+    } else {
+      this.consumedOpenInterest.set(symbol, previous);
+    }
+  }
+
+  private async emit(trigger: EvaluationTrigger): Promise<boolean> {
     const cooldownMs = trigger.reason === "minute_recheck" ? 50_000 : 20_000;
     const last = this.lastTriggered.get(trigger.reason) ?? 0;
     if (Date.now() - last < cooldownMs) {
-      return;
+      return false;
     }
 
     this.lastTriggered.set(trigger.reason, Date.now());
     await this.onTrigger(trigger);
+    return true;
   }
 }
