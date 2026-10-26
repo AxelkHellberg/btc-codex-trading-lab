@@ -69,6 +69,7 @@ Runtime flow:
 - The model does not control final leverage, size, stop placement, or take-profit placement
 - Paper mode and live mode share the same orchestration path
 - Every decision is persisted with context, rationale, and approval outcome
+- MARKET entry quantities must satisfy both LOT_SIZE and MARKET_LOT_SIZE when supplied by exchange info. Entries outside either minimum, maximum, or step grid are rejected; quantities are not increased or silently capped to pass. CLOSE/REDUCE quantity policy is separate.
 - The system defaults to paper trading and should be treated as experimental research software
 
 ## Local development

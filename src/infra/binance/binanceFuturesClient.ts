@@ -86,12 +86,19 @@ export class BinanceFuturesClient {
 
     const priceFilter = found.filters.find((filter) => filter.filterType === "PRICE_FILTER");
     const lotSize = found.filters.find((filter) => filter.filterType === "LOT_SIZE");
+    const marketLotSize = found.filters.find((filter) => filter.filterType === "MARKET_LOT_SIZE");
     const minNotional = found.filters.find((filter) => filter.filterType === "MIN_NOTIONAL");
 
     return {
       tickSize: Number(priceFilter?.tickSize ?? "0.1"),
       stepSize: Number(lotSize?.stepSize ?? "0.001"),
       minQty: Number(lotSize?.minQty ?? "0.001"),
+      maxQty: lotSize?.maxQty === undefined ? undefined : Number(lotSize.maxQty),
+      marketLotSize: marketLotSize ? {
+        minQty: Number(marketLotSize.minQty),
+        maxQty: Number(marketLotSize.maxQty),
+        stepSize: Number(marketLotSize.stepSize)
+      } : undefined,
       minNotional: minNotional ? Number(minNotional.notional ?? "0") : undefined
     };
   }

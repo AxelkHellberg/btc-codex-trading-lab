@@ -24,6 +24,12 @@ export interface SymbolFilters {
   tickSize: number;
   stepSize: number;
   minQty: number;
+  maxQty?: number;
+  marketLotSize?: {
+    minQty: number;
+    maxQty: number;
+    stepSize: number;
+  };
   minNotional?: number;
 }
 
