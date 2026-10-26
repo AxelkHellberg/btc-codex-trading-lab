@@ -7,6 +7,7 @@ import type {
   TradeAction
 } from "../domain/types.js";
 import { clamp, normalizeQuantity, roundToTick } from "../lib/math.js";
+import { marketEntryQuantityErrors } from "../lib/marketQuantity.js";
 
 export interface PlanningResult {
   normalizedSignal: StrategySignal;
@@ -86,6 +87,7 @@ export class StrategyPlanner {
     const capitalBySize = context.account_state.equity * sizePct * leverage;
     const allowedNotional = Math.min(capitalByRisk, capitalBySize);
     const quantity = normalizeQuantity(allowedNotional / entryPrice, context.market_snapshot.filters);
+    reasons.push(...marketEntryQuantityErrors(quantity, context.market_snapshot.filters));
     if (quantity <= 0) {
       reasons.push("calculated quantity is below exchange minimum");
     }

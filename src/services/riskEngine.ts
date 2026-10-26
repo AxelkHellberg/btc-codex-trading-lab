@@ -2,6 +2,7 @@ import type { AppConfig } from "../config.js";
 import type { DecisionContext, ExecutionPlan, RiskEvaluation, StrategySignal } from "../domain/types.js";
 import { normalizeQuantity, riskRewardRatio } from "../lib/math.js";
 import type { PlanningResult } from "./strategyPlanner.js";
+import { marketEntryQuantityErrors } from "../lib/marketQuantity.js";
 
 export class RiskEngine {
   public constructor(private readonly config: AppConfig) {}
@@ -87,6 +88,7 @@ export class RiskEngine {
     if (context.position_state.side !== "flat") {
       reasons.push("max one open position allowed");
     }
+    reasons.push(...marketEntryQuantityErrors(executionPlan.quantity, context.market_snapshot.filters));
     if (context.account_state.openOrders >= this.config.riskPolicy.maxOpenPositions) {
       reasons.push("open order limit reached");
     }
