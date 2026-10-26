@@ -46,6 +46,7 @@ export class NewsIngestor {
     }
 
     const collected: NewsEvent[] = [];
+    const pending = new Set<string>();
     await Promise.all(
       feeds.map(async ({ feed, tag }) => {
         try {
@@ -61,10 +62,10 @@ export class NewsIngestor {
               .createHash("sha1")
               .update(`${parsed.title}:${title}:${url ?? ""}`)
               .digest("hex");
-            if (this.seen.has(id)) {
+            if (this.seen.has(id) || pending.has(id)) {
               continue;
             }
-            this.seen.add(id);
+            pending.add(id);
             collected.push({
               id,
               source: parsed.title ?? new URL(feed).hostname,
@@ -86,6 +87,10 @@ export class NewsIngestor {
       await this.onEvents(
         collected.sort((left, right) => right.relevanceScore - left.relevanceScore)
       );
+      // Delivery is at least once: a rejected sink must leave these IDs retryable.
+      for (const event of collected) {
+        this.seen.add(event.id);
+      }
     }
   }
 
