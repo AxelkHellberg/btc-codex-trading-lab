@@ -39,6 +39,8 @@ export interface MarketSnapshot {
   nextFundingTime: number;
   openInterest: number;
   openInterestChangePct1m: number;
+  /** Time of the supplemental OI observation; preserved across WebSocket frames. */
+  openInterestObservedAt?: number;
   topTraderLongShortRatio: number;
   volume1m: number;
   priceChangePct1m: number;
