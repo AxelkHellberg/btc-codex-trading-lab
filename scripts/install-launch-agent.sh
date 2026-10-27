@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 PLIST_TEMPLATE="$ROOT/ops/launchd/com.btc-codex-trading-lab.plist.template"
 PLIST_DST="$HOME/Library/LaunchAgents/com.btc-codex-trading-lab.plist"
 LABEL="com.btc-codex-trading-lab"
