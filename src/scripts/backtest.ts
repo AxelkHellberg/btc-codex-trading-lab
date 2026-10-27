@@ -166,7 +166,7 @@ const main = async (): Promise<void> => {
     const window = candles.slice(Math.max(0, index - 60), index + 1);
     const current = window[window.length - 1]!;
     const closes = window.map((candle) => candle.close);
-    const intradayWindow = window.slice(-Math.min(window.length, 24 * 60));
+    const intradayWindow = candles.slice(Math.max(0, index + 1 - 24 * 60), index + 1);
     const intradayHigh = Math.max(...intradayWindow.map((candle) => candle.high));
     const intradayLow = Math.min(...intradayWindow.map((candle) => candle.low));
     const emaFast = ema(closes.slice(-9), 9);
