@@ -9,6 +9,7 @@ import { LiveBroker, PaperBroker, type Broker } from "./services/brokers.js";
 import { CodexDecisionWorker } from "./services/codexDecisionWorker.js";
 import { EventDetector } from "./services/eventDetector.js";
 import { ExecutionEngine } from "./services/executionEngine.js";
+import { startHeartbeatLoop } from "./services/heartbeatLoop.js";
 import { MarketIngestor } from "./services/marketIngestor.js";
 import { NewsIngestor } from "./services/newsIngestor.js";
 import { OnchainIngestor } from "./services/onchainIngestor.js";
@@ -128,16 +129,15 @@ const main = async (): Promise<void> => {
     await eventDetector.handleOnchain(snapshot);
   });
 
-  const heartbeatTimer = setInterval(() => {
-    void (async () => {
-      await store.heartbeat("btc-codex-trader", {
-        mode: config.tradingMode,
-        symbol: config.symbol,
-        ts: Date.now()
-      });
-      await eventDetector.heartbeat();
-    })();
-  }, 60_000);
+  const heartbeat = startHeartbeatLoop(
+    () => store.heartbeat("btc-codex-trader", {
+      mode: config.tradingMode,
+      symbol: config.symbol,
+      ts: Date.now()
+    }),
+    () => eventDetector.heartbeat(),
+    (stage, error) => logger.warn({ error, stage }, "Scheduled heartbeat failed")
+  );
 
   const httpServer = await createHttpServer(runtime, config.port, async () => {
     await evaluateTrigger({
@@ -150,7 +150,7 @@ const main = async (): Promise<void> => {
   await Promise.all([httpServer.start(), marketIngestor.start(), newsIngestor.start(), onchainIngestor.start()]);
 
   const shutdown = async (): Promise<void> => {
-    clearInterval(heartbeatTimer);
+    await heartbeat.stop();
     await Promise.allSettled([
       httpServer.stop(),
       marketIngestor.stop(),
