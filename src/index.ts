@@ -15,6 +15,7 @@ import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
 import { RuntimeState } from "./services/runtimeState.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
+import { shutdownServices } from "./services/shutdownServices.js";
 
 const main = async (): Promise<void> => {
   const runtime = new RuntimeState(config.paperStartingBalance);
@@ -149,17 +150,21 @@ const main = async (): Promise<void> => {
   });
   await Promise.all([httpServer.start(), marketIngestor.start(), newsIngestor.start(), onchainIngestor.start()]);
 
-  const shutdown = async (): Promise<void> => {
-    clearInterval(heartbeatTimer);
-    await Promise.allSettled([
-      httpServer.stop(),
-      marketIngestor.stop(),
-      Promise.resolve(newsIngestor.stop()),
-      Promise.resolve(onchainIngestor.stop()),
-      hotStore.close(),
-      store.close()
-    ]);
-    process.exit(0);
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (): Promise<void> => {
+    shutdownPromise ??= (async () => {
+      clearInterval(heartbeatTimer);
+      const exitCode = await shutdownServices([
+        { name: "httpServer", stop: () => httpServer.stop() },
+        { name: "marketIngestor", stop: () => marketIngestor.stop() },
+        { name: "newsIngestor", stop: () => newsIngestor.stop() },
+        { name: "onchainIngestor", stop: () => onchainIngestor.stop() },
+        { name: "hotStore", stop: () => hotStore.close() },
+        { name: "store", stop: () => store.close() }
+      ], (service, error) => logger.error({ service, error }, "Shutdown step failed"));
+      process.exit(exitCode);
+    })();
+    return shutdownPromise;
   };
 
   process.on("SIGINT", () => {
