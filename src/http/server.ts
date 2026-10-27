@@ -529,6 +529,7 @@ export async function createHttpServer(
 
   app.get("/healthz", async () => ({
     ok: true,
+    pid: process.pid,
     ts: Date.now()
   }));
 

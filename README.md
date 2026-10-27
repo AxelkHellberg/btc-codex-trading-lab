@@ -115,6 +115,17 @@ macOS background run:
 - `./scripts/run-daemon.sh`
 - stop with `./scripts/stop-daemon.sh`
 
+The launcher waits up to 30 seconds after spawning the app for `/healthz` to
+return `ok: true` and the spawned process's PID. It reads `APP_PORT` from the
+environment or `.env`, like the app (default: 3000). Set
+`DAEMON_STARTUP_TIMEOUT_SECONDS` to 1–300 to change this startup budget. Failure
+returns a nonzero status, stops only the new app/caffeinate children, removes
+their matching PID files, and points to `logs/app.log`. An existing PID must also
+pass the health check before the launcher reports success. This confirms the
+HTTP endpoint is available; `/healthz` does not yet certify every upstream feed
+or backing service is ready (see #53). Docker startup and compilation precede
+this health budget.
+
 macOS `launchd` install:
 
 - `./scripts/install-launch-agent.sh`
