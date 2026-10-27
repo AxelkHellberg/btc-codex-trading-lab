@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "../config.js";
 import type { DecisionContext, ExecutionPlan } from "../domain/types.js";
 import { PaperBroker } from "./brokers.js";
+import { RuntimeState } from "./runtimeState.js";
 
 const context = (): DecisionContext => ({
   market_snapshot: {
@@ -94,6 +95,7 @@ const context = (): DecisionContext => ({
 describe("PaperBroker", () => {
   it("manages break-even, partial TP, and trailing stop on a long trade", async () => {
     const broker = new PaperBroker(config);
+    const runtime = new RuntimeState(config.paperStartingBalance);
     const plan: ExecutionPlan = {
       action: "LONG",
       side: "BUY",
@@ -121,6 +123,7 @@ describe("PaperBroker", () => {
     const open = await broker.execute(plan, context());
     expect(open.accepted).toBe(true);
     expect(open.tradeRecord?.status).toBe("open");
+    runtime.upsertTrade(open.tradeRecord!);
 
     await broker.onMarketSnapshot?.({
       ...context().market_snapshot,
@@ -136,6 +139,9 @@ describe("PaperBroker", () => {
     expect(partial?.accepted).toBe(true);
     expect(partial?.tradeRecord?.status).toBe("partial");
     expect(partial?.positionState.quantity).toBeCloseTo(0.01, 5);
+    runtime.upsertTrade(partial!.tradeRecord!);
+    expect(runtime.getTradeStats().realizedPnl).toBeCloseTo(partial!.positionState.realizedPnl);
+    expect(runtime.getTradeStats().winRate).toBe(0);
 
     await broker.onMarketSnapshot?.({
       ...context().market_snapshot,
@@ -151,5 +157,8 @@ describe("PaperBroker", () => {
     expect(close?.tradeRecord?.status).toBe("closed");
     expect(close?.tradeRecord?.exitReason).toBe("trailing_stop");
     expect(close?.positionState.side).toBe("flat");
+    runtime.upsertTrade(close!.tradeRecord!);
+    expect(runtime.getRecentTrades()).toHaveLength(1);
+    expect(runtime.getTradeStats().realizedPnl).toBeCloseTo(close!.positionState.realizedPnl);
   });
 });

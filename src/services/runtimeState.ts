@@ -242,7 +242,9 @@ export class RuntimeState {
     }, {});
 
     return {
-      realizedPnl: closedTrades.reduce((sum, trade) => sum + trade.netPnl, 0),
+      realizedPnl: this.trades
+        .filter((trade) => trade.status === "partial" || trade.status === "closed")
+        .reduce((sum, trade) => sum + trade.netPnl, 0),
       unrealizedPnl: this.position.unrealizedPnl,
       winRate: closedTrades.length > 0 ? winners.length / closedTrades.length : 0,
       expectancy: closedTrades.length > 0 ? closedTrades.reduce((sum, trade) => sum + trade.netPnl, 0) / closedTrades.length : 0,
