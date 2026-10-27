@@ -108,6 +108,8 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+The backtest computes intraday high/low levels from the latest 1,440 one-minute candles through the current replay candle (or all available history when shorter). Its signal window remains 61 candles. This is a rolling window, independent of calendar-day boundaries, and it excludes future replay candles.
+
 ## Operations
 
 macOS background run:
