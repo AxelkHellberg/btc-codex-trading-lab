@@ -145,7 +145,11 @@ export class RuntimeState {
       return null;
     }
 
-    const latestNews = this.news.slice(0, 10);
+    const latestNews = [...this.news]
+      .sort((left, right) =>
+        right.relevanceScore - left.relevanceScore || right.publishedAt - left.publishedAt
+      )
+      .slice(0, 10);
     const weightedSentiment = latestNews.reduce(
       (accumulator, event) => accumulator + event.sentimentScore * event.relevanceScore,
       0
@@ -182,7 +186,7 @@ export class RuntimeState {
         open_interest_change_pct_1m: this.latestMarket.openInterestChangePct1m,
         top_trader_long_short_ratio: this.latestMarket.topTraderLongShortRatio
       },
-      news_events: this.news.slice(0, 10),
+      news_events: latestNews,
       onchain_snapshot: this.latestOnchain,
       position_state: this.getPosition(),
       account_state: this.getAccount(),
