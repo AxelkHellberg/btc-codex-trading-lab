@@ -110,6 +110,20 @@ Useful commands:
 
 ## Operations
 
+### PostgreSQL query deadlines
+
+Runtime schema and persistence queries have a 10-second client response budget
+after a pool connection is acquired. A timed-out query rejects to its caller;
+the pool discards that connection so a silent query cannot retain the client or
+hold pool shutdown open indefinitely. This query budget is separate from
+connection acquisition and does not bound waiting for an available pool client.
+
+A response timeout does not prove that a write was rolled back. The store does
+not retry it automatically. Server-side `statement_timeout` and `lock_timeout`
+serve a different role: database operators can use them to stop expensive SQL
+or lock waits at the server. This client deadline neither configures those
+settings nor guarantees cancellation of SQL already executing on the server.
+
 macOS background run:
 
 - `./scripts/run-daemon.sh`
