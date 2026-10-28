@@ -144,15 +144,16 @@ const main = async (): Promise<void> => {
     "",
     logger
   );
-  const broker = new PaperBroker({
-    ...config,
-    paperStartingBalance: initialBalance,
-    tradingMode: "paper"
-  });
-  const planner = new StrategyPlanner(config);
-  const riskEngine = new RiskEngine(config);
   const endTime = Date.now();
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
+  let replayTime = startTime;
+  const replayClock = () => replayTime;
+  const broker = new PaperBroker(
+    { ...config, paperStartingBalance: initialBalance, tradingMode: "paper" },
+    replayClock
+  );
+  const planner = new StrategyPlanner(config, replayClock);
+  const riskEngine = new RiskEngine(config);
   const candles = await fetchHistoricalKlines(client, config.symbol, startTime, endTime);
   const filters = await client.getSymbolFilters(config.symbol);
   let wins = 0;
@@ -165,6 +166,7 @@ const main = async (): Promise<void> => {
   for (let index = 60; index < candles.length; index += 1) {
     const window = candles.slice(Math.max(0, index - 60), index + 1);
     const current = window[window.length - 1]!;
+    replayTime = current.closeTime;
     const closes = window.map((candle) => candle.close);
     const intradayWindow = window.slice(-Math.min(window.length, 24 * 60));
     const intradayHigh = Math.max(...intradayWindow.map((candle) => candle.high));

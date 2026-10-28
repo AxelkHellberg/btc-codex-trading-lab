@@ -25,7 +25,10 @@ type Alignment = {
 const isEntryBias = (bias: TradeAction): boolean => bias === "LONG" || bias === "SHORT";
 
 export class StrategyPlanner {
-  public constructor(private readonly config: AppConfig) {}
+  public constructor(
+    private readonly config: AppConfig,
+    private readonly clock: () => number = Date.now
+  ) {}
 
   public plan(context: DecisionContext, signal: StrategySignal): PlanningResult {
     const normalizedSignal: StrategySignal = {
@@ -114,7 +117,7 @@ export class StrategyPlanner {
         trailingTriggerR: 2,
         trailingOffset: roundToTick(trailingOffset, tickSize),
         initialRiskPerUnit: roundToTick(initialRiskPerUnit, tickSize),
-        maxHoldUntil: Date.now() + normalizedSignal.holding_horizon_minutes * 60_000,
+        maxHoldUntil: this.clock() + normalizedSignal.holding_horizon_minutes * 60_000,
         confidence: normalizedSignal.confidence,
         setupType: normalizedSignal.setup_type,
         regimeAtEntry: context.context_summary.regime,

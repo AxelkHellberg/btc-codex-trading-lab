@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "../config.js";
 import type { DecisionContext, ExecutionPlan } from "../domain/types.js";
 import { PaperBroker } from "./brokers.js";
+import { StrategyPlanner } from "./strategyPlanner.js";
 
 const context = (): DecisionContext => ({
   market_snapshot: {
@@ -151,5 +152,56 @@ describe("PaperBroker", () => {
     expect(close?.tradeRecord?.status).toBe("closed");
     expect(close?.tradeRecord?.exitReason).toBe("trailing_stop");
     expect(close?.positionState.side).toBe("flat");
+  });
+});
+
+
+describe("paper replay clock", () => {
+  it.each(["LONG", "SHORT"] as const)("expires a historical %s at its simulated horizon", async (bias) => {
+    const openedAt = Date.UTC(2020, 0, 1);
+    let replayTime = openedAt;
+    const clock = () => replayTime;
+    const settings = { ...config, slippageBps: 0, takerFeeBps: 0 };
+    const planner = new StrategyPlanner(settings, clock);
+    const broker = new PaperBroker(settings, clock);
+    const input = context();
+    input.market_snapshot.timestamp = openedAt;
+    const planning = planner.plan(input, {
+      bias,
+      confidence: 0.9,
+      setup_type: "reversal",
+      invalidation_price: bias === "LONG" ? 99_000 : 101_000,
+      holding_horizon_minutes: 2,
+      reasoning_summary: "historical clock regression"
+    });
+    expect(planning.plan?.maxHoldUntil).toBe(openedAt + 120_000);
+    const open = await broker.execute(planning.plan!, input);
+    expect(open.tradeRecord?.openedAt).toBe(openedAt);
+    expect(open.accountState.updatedAt).toBe(openedAt);
+
+    replayTime += 119_999;
+    expect(await broker.onMarketSnapshot({ ...input.market_snapshot, timestamp: replayTime })).toBeNull();
+    replayTime += 1;
+    const closed = await broker.onMarketSnapshot({ ...input.market_snapshot, timestamp: replayTime });
+    expect(closed?.tradeRecord?.exitReason).toBe("time_exit");
+    expect(closed?.tradeRecord?.closedAt).toBe(replayTime);
+    expect(closed?.tradeRecord?.holdingMinutes).toBe(2);
+    expect(closed?.accountState.updatedAt).toBe(replayTime);
+    expect(closed?.positionState.side).toBe("flat");
+  });
+
+  it("keeps the wall clock as the default for ordinary paper execution", async () => {
+    const before = Date.now();
+    const input = context();
+    input.market_snapshot.timestamp = Date.UTC(2020, 0, 1);
+    const planning = new StrategyPlanner(config).plan(input, {
+      bias: "LONG", confidence: 0.9, setup_type: "reversal", invalidation_price: 99_000,
+      holding_horizon_minutes: 2, reasoning_summary: "default clock control"
+    });
+    const broker = new PaperBroker(config);
+    const result = await broker.execute(planning.plan!, input);
+    expect(planning.plan!.maxHoldUntil).toBeGreaterThanOrEqual(before + 120_000);
+    expect(result.tradeRecord!.openedAt).toBeGreaterThanOrEqual(before);
+    expect(await broker.onMarketSnapshot(input.market_snapshot)).toBeNull();
   });
 });
