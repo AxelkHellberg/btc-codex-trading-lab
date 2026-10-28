@@ -344,8 +344,6 @@ export class PaperBroker implements Broker {
 
     this.account.walletBalance += netPnl;
     this.account.dailyPnl += netPnl;
-    this.account.consecutiveLosses = netPnl < 0 ? this.account.consecutiveLosses + 1 : 0;
-    this.account.lastLossAt = netPnl < 0 ? now : undefined;
 
     const remainingQty = this.position.quantity - closeQty;
     const cumulativeExitFee = (this.position.exitFeePaid ?? 0) + fee;
@@ -353,6 +351,10 @@ export class PaperBroker implements Broker {
     const cumulativeNet = (this.position.netRealizedPnl ?? -(this.position.entryFee ?? 0)) + netPnl;
 
     if (remainingQty <= 0.0000001) {
+      // Cooldown tracks completed trades, including every exit and the entry fee.
+      // A partial leg must neither create a loss nor clear an existing streak.
+      this.account.consecutiveLosses = cumulativeNet < 0 ? this.account.consecutiveLosses + 1 : 0;
+      this.account.lastLossAt = cumulativeNet < 0 ? now : undefined;
       this.position = {
         side: "flat",
         quantity: 0,
