@@ -108,6 +108,8 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+Historical replay advances the planner and paper broker clock to each candle close. Holding deadlines, trade timestamps, and holding durations therefore follow simulated time; ordinary runtime execution continues to use the system clock.
+
 ## Operations
 
 macOS background run:

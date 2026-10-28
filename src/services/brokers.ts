@@ -30,8 +30,11 @@ export class PaperBroker implements Broker {
   private peakEquity: number;
   private activeTrade: PersistedTradeRecord | null = null;
 
-  public constructor(private readonly config: AppConfig) {
-    const now = Date.now();
+  public constructor(
+    private readonly config: AppConfig,
+    private readonly clock: () => number = Date.now
+  ) {
+    const now = this.clock();
     this.account = {
       equity: config.paperStartingBalance,
       walletBalance: config.paperStartingBalance,
@@ -124,7 +127,7 @@ export class PaperBroker implements Broker {
     const fillPrice = estimateSlippagePrice(market.markPrice, this.config.slippageBps, plan.side);
     const fee = fillPrice * plan.quantity * (this.config.takerFeeBps / 10_000);
     const side: PositionDirection = plan.side === "BUY" ? "long" : "short";
-    const now = Date.now();
+    const now = this.clock();
 
     this.account.walletBalance -= fee;
     this.account.availableBalance = Math.max(0, this.account.walletBalance - (fillPrice * plan.quantity) / plan.leverage);
@@ -295,7 +298,7 @@ export class PaperBroker implements Broker {
       (this.position.tp2 ?? this.position.takeProfit) !== undefined &&
       ((this.position.side === "long" && snapshot.markPrice >= (this.position.tp2 ?? this.position.takeProfit!)) ||
         (this.position.side === "short" && snapshot.markPrice <= (this.position.tp2 ?? this.position.takeProfit!)));
-    const expired = this.position.maxHoldUntil !== undefined && Date.now() >= this.position.maxHoldUntil;
+    const expired = this.position.maxHoldUntil !== undefined && this.clock() >= this.position.maxHoldUntil;
 
     if (stopHit) {
       if (this.position.trailingActive) {
@@ -340,7 +343,7 @@ export class PaperBroker implements Broker {
     const grossPnl = signedPnl(this.position.side, this.position.entryPrice, exitPrice, closeQty);
     const fee = exitPrice * closeQty * (this.config.takerFeeBps / 10_000);
     const netPnl = grossPnl - fee;
-    const now = Date.now();
+    const now = this.clock();
 
     this.account.walletBalance += netPnl;
     this.account.dailyPnl += netPnl;
@@ -459,7 +462,7 @@ export class PaperBroker implements Broker {
       this.account.equity = this.account.walletBalance;
       this.account.weeklyDrawdown =
         this.peakEquity > 0 ? Math.max(0, (this.peakEquity - this.account.equity) / this.peakEquity) : 0;
-      this.account.updatedAt = Date.now();
+      this.account.updatedAt = this.clock();
       return;
     }
 
@@ -479,7 +482,7 @@ export class PaperBroker implements Broker {
     this.peakEquity = Math.max(this.peakEquity, this.account.equity);
     this.account.weeklyDrawdown =
       this.peakEquity > 0 ? Math.max(0, (this.peakEquity - this.account.equity) / this.peakEquity) : 0;
-    this.account.updatedAt = Date.now();
+    this.account.updatedAt = this.clock();
 
     if (this.activeTrade) {
       this.activeTrade = {
@@ -490,7 +493,7 @@ export class PaperBroker implements Broker {
         takeProfit: this.position.takeProfit,
         tp1: this.position.tp1,
         tp2: this.position.tp2,
-        updatedAt: Date.now()
+        updatedAt: this.clock()
       };
     }
   }
