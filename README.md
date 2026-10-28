@@ -41,6 +41,14 @@ Core services:
 - `state-store`: Postgres + Redis backing for history and runtime state
 - `ops-notifier`: Telegram notifications for operational visibility
 
+Runtime `intradayHigh` / `intradayLow` and their distance fields use a rolling
+history of up to 1,440 one-minute bars, including the current candle's high/low.
+Startup requests that same history and streaming updates retain at most 1,440
+bars. This is a rolling day of available bars, not a calendar-day/session reset;
+short or missing history provides a shorter observed window. The dashboard and
+decision-context key levels use these runtime values. Historical replay has its
+own window construction.
+
 Runtime flow:
 
 1. Ingest market, news, macro, and on-chain context

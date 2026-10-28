@@ -167,8 +167,8 @@ export class RuntimeState {
     const catalystBias = averageSentiment > 0.12 ? "bullish" : averageSentiment < -0.12 ? "bearish" : "neutral";
     const notes = [
       `volume acceleration ${this.latestMarket.volumeAcceleration.toFixed(2)}x versus recent average`,
-      `distance to intraday high ${this.latestMarket.distanceFromIntradayHighPct.toFixed(2)}%`,
-      `distance to intraday low ${this.latestMarket.distanceFromIntradayLowPct.toFixed(2)}%`
+      `distance to intraday high (rolling 1440 one-minute bars) ${this.latestMarket.distanceFromIntradayHighPct.toFixed(2)}%`,
+      `distance to intraday low (rolling 1440 one-minute bars) ${this.latestMarket.distanceFromIntradayLowPct.toFixed(2)}%`
     ];
 
     const regime = this.classifyRegime(this.latestMarket);
