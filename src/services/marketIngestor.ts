@@ -5,6 +5,9 @@ import type { AppConfig } from "../config.js";
 import type { AccountState, MarketSnapshot, PositionState } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 
+// Rolling one-minute history; this is not a UTC/session calendar-day reset.
+const INTRADAY_BAR_LIMIT = 24 * 60;
+
 type MinuteBar = {
   close: number;
   high: number;
@@ -72,7 +75,7 @@ export class MarketIngestor {
   public async start(): Promise<void> {
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
-    this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", INTRADAY_BAR_LIMIT);
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
     this.lastOpenInterest = this.snapshot.openInterest;
     this.filtersLoaded = true;
@@ -177,7 +180,7 @@ export class MarketIngestor {
           volume: Number(data.k.v),
           closeTime: data.E
         });
-        this.candleHistory = this.candleHistory.slice(-240);
+        this.candleHistory = this.candleHistory.slice(-INTRADAY_BAR_LIMIT);
       }
       this.snapshot = this.applyDerivedMetrics(
         next,
