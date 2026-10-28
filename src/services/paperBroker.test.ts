@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { config } from "../config.js";
 import type { DecisionContext, ExecutionPlan } from "../domain/types.js";
 import { PaperBroker } from "./brokers.js";
+import { RuntimeState } from "./runtimeState.js";
 
 const context = (): DecisionContext => ({
   market_snapshot: {
@@ -92,6 +93,103 @@ const context = (): DecisionContext => ({
 });
 
 describe("PaperBroker", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const tradePlan = (): ExecutionPlan => ({
+    action: "LONG", side: "BUY", entryType: "MARKET", leverage: 2,
+    quantity: 2, notionalUsd: 200, entryPrice: 100,
+    stopLoss: 90, tp2: 1000, initialRiskPerUnit: 10,
+    confidence: 0.8, reasoningSummary: "loss accounting fixture"
+  });
+
+  const executeAt = async (broker: PaperBroker, action: "LONG" | "REDUCE" | "CLOSE", price: number, quantity = 2) => {
+    const ctx = context();
+    ctx.market_snapshot.markPrice = price;
+    return broker.execute({ ...tradePlan(), action, side: action === "LONG" ? "BUY" : "SELL", quantity }, ctx);
+  };
+
+  it("does not classify a profitable scale-out as a loss when the final leg loses after fees", async () => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 10 });
+    await executeAt(broker, "LONG", 100);
+    const partial = await executeAt(broker, "REDUCE", 120, 1);
+    expect(partial.tradeRecord?.status).toBe("partial");
+    expect(partial.accountState.consecutiveLosses).toBe(0);
+    const final = await executeAt(broker, "CLOSE", 100, 1);
+    expect(final.tradeRecord?.netPnl).toBeCloseTo(19.58);
+    expect(final.tradeRecord?.status).toBe("closed");
+    expect(final.accountState.consecutiveLosses).toBe(0);
+    expect(final.accountState.lastLossAt).toBeUndefined();
+  });
+
+  it("preserves the prior streak and timestamp through partial losses, then resets on a net win", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    await executeAt(broker, "LONG", 100);
+    const loss = await executeAt(broker, "CLOSE", 90);
+    expect(loss.accountState.consecutiveLosses).toBe(1);
+    expect(loss.accountState.lastLossAt).toBe(100_000);
+    now.mockReturnValue(200_000);
+    await executeAt(broker, "LONG", 100);
+    const partial = await executeAt(broker, "REDUCE", 90, 1);
+    expect(partial.accountState.consecutiveLosses).toBe(1);
+    expect(partial.accountState.lastLossAt).toBe(100_000);
+    const final = await executeAt(broker, "CLOSE", 120, 1);
+    expect(final.tradeRecord?.netPnl).toBe(10);
+    expect(final.accountState.consecutiveLosses).toBe(0);
+    expect(final.accountState.lastLossAt).toBeUndefined();
+  });
+
+  it("counts a losing completed trade once even if its final leg wins", async () => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    await executeAt(broker, "LONG", 100);
+    const partial = await executeAt(broker, "REDUCE", 80, 1);
+    expect(partial.accountState.consecutiveLosses).toBe(0);
+    const final = await executeAt(broker, "CLOSE", 110, 1);
+    expect(final.tradeRecord?.netPnl).toBe(-10);
+    expect(final.accountState.consecutiveLosses).toBe(1);
+    expect(final.accountState.lastLossAt).toBeDefined();
+    const repeated = await executeAt(broker, "CLOSE", 110);
+    expect(repeated.accepted).toBe(false);
+    expect(repeated.accountState.consecutiveLosses).toBe(1);
+  });
+
+  it("activates cooldown after two completed losses, not after two reductions", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    for (let i = 0; i < 2; i += 1) {
+      await executeAt(broker, "LONG", 100);
+      await executeAt(broker, "REDUCE", 90, 0.5);
+      const partial = await executeAt(broker, "REDUCE", 90, 0.5);
+      expect(partial.accountState.consecutiveLosses).toBe(i);
+      const final = await executeAt(broker, "CLOSE", 90, 1);
+      expect(final.accountState.consecutiveLosses).toBe(i + 1);
+    }
+    const runtime = new RuntimeState(config.paperStartingBalance);
+    runtime.setAccount(broker.getState().accountState);
+    expect(runtime.getRiskState({ maxDailyLoss: 1, maxWeeklyDrawdown: 1, cooldownMinutes: 60 }).cooldownActive).toBe(true);
+  });
+
+  it("includes entry fees when classifying a completed trade", async () => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 100 });
+    await executeAt(broker, "LONG", 100);
+    const final = await executeAt(broker, "CLOSE", 101.5);
+    expect(final.tradeRecord?.netPnl).toBeCloseTo(-1.03);
+    expect(final.accountState.consecutiveLosses).toBe(1);
+    expect(final.accountState.lastLossAt).toBeDefined();
+  });
+
+  it("resets the streak on a break-even completed trade", async () => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0, takerFeeBps: 0 });
+    await executeAt(broker, "LONG", 100);
+    await executeAt(broker, "CLOSE", 90);
+    await executeAt(broker, "LONG", 100);
+    await executeAt(broker, "REDUCE", 90, 1);
+    const final = await executeAt(broker, "CLOSE", 110, 1);
+    expect(final.tradeRecord?.netPnl).toBe(0);
+    expect(final.accountState.consecutiveLosses).toBe(0);
+    expect(final.accountState.lastLossAt).toBeUndefined();
+  });
+
   it("manages break-even, partial TP, and trailing stop on a long trade", async () => {
     const broker = new PaperBroker(config);
     const plan: ExecutionPlan = {
