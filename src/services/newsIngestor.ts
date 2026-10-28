@@ -11,6 +11,7 @@ const parser = new Parser();
 const POSITIVE_WORDS = ["approval", "inflow", "bull", "surge", "record", "adoption", "breakout"];
 const NEGATIVE_WORDS = ["hack", "ban", "liquidation", "lawsuit", "outflow", "bear", "dump"];
 const BTC_KEYWORDS = ["bitcoin", "btc", "etf", "fomc", "cpi", "inflation", "fed", "rates", "sec"];
+const MAX_SEEN_NEWS_ITEMS = 10_000;
 
 export class NewsIngestor {
   private readonly seen = new Set<string>();
@@ -46,6 +47,7 @@ export class NewsIngestor {
     }
 
     const collected: NewsEvent[] = [];
+    const collectedIds = new Set<string>();
     await Promise.all(
       feeds.map(async ({ feed, tag }) => {
         try {
@@ -61,10 +63,14 @@ export class NewsIngestor {
               .createHash("sha1")
               .update(`${parsed.title}:${title}:${url ?? ""}`)
               .digest("hex");
-            if (this.seen.has(id)) {
+            if (this.seen.has(id) || collectedIds.has(id)) {
               continue;
             }
+            collectedIds.add(id);
             this.seen.add(id);
+            if (this.seen.size > MAX_SEEN_NEWS_ITEMS) {
+              this.seen.delete(this.seen.values().next().value!);
+            }
             collected.push({
               id,
               source: parsed.title ?? new URL(feed).hostname,

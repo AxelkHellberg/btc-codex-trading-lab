@@ -41,6 +41,8 @@ Core services:
 - `state-store`: Postgres + Redis backing for history and runtime state
 - `ops-notifier`: Telegram notifications for operational visibility
 
+RSS duplicate suppression keeps the most recently inserted 10,000 item IDs in memory. Older IDs are evicted in insertion order and may be delivered again; repeated items within one poll are still delivered once. The cache is process-local and starts empty after a restart. It is a bounded recent window, not permanent delivery history.
+
 Runtime flow:
 
 1. Ingest market, news, macro, and on-chain context
