@@ -191,7 +191,8 @@ const main = async (): Promise<void> => {
       priceChangePct1h: changePct(current.close, window[Math.max(0, window.length - 61)]?.close),
       intradayHigh,
       intradayLow,
-      distanceFromIntradayHighPct: changePct(current.close, intradayHigh),
+      distanceFromIntradayHighPct:
+        intradayHigh > 0 ? ((intradayHigh - current.close) / intradayHigh) * 100 : 0,
       distanceFromIntradayLowPct: changePct(current.close, intradayLow),
       emaFast,
       emaMedium,
