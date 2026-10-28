@@ -11,7 +11,7 @@ export class PostgresStateStore {
   }
 
   public async init(): Promise<void> {
-    await this.pool.query(`
+    await this.query(`
       CREATE TABLE IF NOT EXISTS snapshots (
         id BIGSERIAL PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -92,14 +92,14 @@ export class PostgresStateStore {
   }
 
   public async saveSnapshot(kind: string, payload: unknown): Promise<void> {
-    await this.pool.query("INSERT INTO snapshots (kind, payload) VALUES ($1, $2::jsonb)", [
+    await this.query("INSERT INTO snapshots (kind, payload) VALUES ($1, $2::jsonb)", [
       kind,
       JSON.stringify(payload)
     ]);
   }
 
   public async saveDecision(record: PersistedDecisionRecord): Promise<void> {
-    await this.pool.query(
+    await this.query(
       `
         INSERT INTO decisions (
           decision_id, approved, mode, trigger, context, decision, reasons, plan, created_at
@@ -128,7 +128,7 @@ export class PostgresStateStore {
   }
 
   public async saveTrade(record: PersistedTradeRecord): Promise<void> {
-    await this.pool.query(
+    await this.query(
       `
         INSERT INTO trades (
           trade_id, mode, action, side, quantity, remaining_quantity, leverage, entry_price, stop_loss,
@@ -197,7 +197,7 @@ export class PostgresStateStore {
   }
 
   public async heartbeat(serviceName: string, payload: unknown): Promise<void> {
-    await this.pool.query(
+    await this.query(
       `
         INSERT INTO heartbeats (service_name, payload, updated_at)
         VALUES ($1, $2, NOW())
@@ -207,6 +207,14 @@ export class PostgresStateStore {
       `,
       [serviceName, JSON.stringify(payload)]
     );
+  }
+
+  private async query(text: string, values?: unknown[]): Promise<void> {
+    // pg-pool releases a query's client with the timeout error, destroying that
+    // connection rather than returning a still-busy client to the pool.
+    // Set this per query so connection-string defaults cannot override it.
+    const query = { text, values, query_timeout: 10_000 };
+    await this.pool.query(query);
   }
 
   public async close(): Promise<void> {
