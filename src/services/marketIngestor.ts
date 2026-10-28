@@ -6,6 +6,7 @@ import type { AccountState, MarketSnapshot, PositionState } from "../domain/type
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 
 type MinuteBar = {
+  openTime: number;
   close: number;
   high: number;
   low: number;
@@ -39,6 +40,8 @@ type KlineEvent = {
   e: "kline";
   E: number;
   k: {
+    t: number;
+    T: number;
     c: string;
     h: string;
     l: string;
@@ -72,7 +75,9 @@ export class MarketIngestor {
   public async start(): Promise<void> {
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
-    this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    const candles = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    const now = Date.now();
+    this.candleHistory = candles.filter((bar) => bar.closeTime < now);
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
     this.lastOpenInterest = this.snapshot.openInterest;
     this.filtersLoaded = true;
@@ -165,18 +170,34 @@ export class MarketIngestor {
         next.bestBid > 0 ? ((next.bestAsk - next.bestBid) / next.bestBid) * 10_000 : 0;
       next.timestamp = data.E;
     } else if ("k" in data) {
+      if (
+        !Number.isSafeInteger(data.k.t) || data.k.t <= 0 ||
+        !Number.isSafeInteger(data.k.T) || data.k.T < data.k.t
+      ) {
+        throw new Error("Invalid streaming candle interval");
+      }
+      const tail = this.candleHistory.at(-1);
+      if (tail && data.k.t < tail.openTime) {
+        return;
+      }
       const close = Number(data.k.c);
       next.lastPrice = close;
       next.volume1m = Number(data.k.v);
       next.timestamp = data.E;
       if (data.k.x) {
-        this.candleHistory.push({
+        const bar: MinuteBar = {
+          openTime: data.k.t,
           close,
           high: Number(data.k.h),
           low: Number(data.k.l),
           volume: Number(data.k.v),
-          closeTime: data.E
-        });
+          closeTime: data.k.T
+        };
+        if (tail?.openTime === bar.openTime) {
+          this.candleHistory[this.candleHistory.length - 1] = bar;
+        } else {
+          this.candleHistory.push(bar);
+        }
         this.candleHistory = this.candleHistory.slice(-240);
       }
       this.snapshot = this.applyDerivedMetrics(
