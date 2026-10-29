@@ -92,6 +92,31 @@ const context = (): DecisionContext => ({
 });
 
 describe("PaperBroker", () => {
+  it.each([
+    ["LONG", 100.06, 101.1, 100, 102.06, 101],
+    ["SHORT", 100.14, 99.1, 100.2, 98.03, 99.1]
+  ] as const)("keeps %s break-even and trailing levels on their intended side", async (action, entry, firstMark, breakEven, nextMark, trailing) => {
+    const broker = new PaperBroker({ ...config, slippageBps: 0 });
+    const ctx = context();
+    ctx.market_snapshot.markPrice = entry;
+    await broker.execute({
+      action, side: action === "LONG" ? "BUY" : "SELL", entryType: "MARKET", leverage: 2,
+      quantity: 0.02, notionalUsd: entry * 0.02, entryPrice: entry,
+      stopLoss: action === "LONG" ? 99 : 102,
+      tp2: action === "LONG" ? 200 : 50,
+      initialRiskPerUnit: 1, breakEvenTriggerR: 1, trailingTriggerR: 1.5,
+      trailingOffset: 1.06, confidence: 0.8, entryReason: "Directional protection", reasoningSummary: "Directional protection"
+    }, ctx);
+    await broker.onMarketSnapshot({ ...ctx.market_snapshot, markPrice: firstMark });
+    expect(broker.getState().positionState.stopLoss).toBe(breakEven);
+    expect(broker.getState().positionState.breakEvenArmed).toBe(true);
+    await broker.onMarketSnapshot({ ...ctx.market_snapshot, markPrice: nextMark });
+    expect(broker.getState().positionState.stopLoss).toBe(trailing);
+    expect(broker.getState().positionState.trailingActive).toBe(true);
+    await broker.onMarketSnapshot({ ...ctx.market_snapshot, markPrice: nextMark + (action === "LONG" ? -0.1 : 0.1) });
+    expect(broker.getState().positionState.stopLoss).toBe(trailing);
+  });
+
   it("manages break-even, partial TP, and trailing stop on a long trade", async () => {
     const broker = new PaperBroker(config);
     const plan: ExecutionPlan = {

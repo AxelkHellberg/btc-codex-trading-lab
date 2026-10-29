@@ -14,7 +14,7 @@ const decimalParts = (value: number): { coefficient: bigint; exponent: number } 
   };
 };
 
-const roundToIncrement = (value: number, increment: number, nearest: boolean): number => {
+const roundToIncrement = (value: number, increment: number, direction: "floor" | "nearest" | "ceil"): number => {
   if (!Number.isFinite(value) || !Number.isFinite(increment) || increment <= 0) {
     return value;
   }
@@ -29,17 +29,27 @@ const roundToIncrement = (value: number, increment: number, nearest: boolean): n
   if (numerator < 0n && numerator % denominator !== 0n) {
     units -= 1n;
   }
-  if (nearest && (numerator - units * denominator) * 2n >= denominator) {
+  if (direction === "nearest" && (numerator - units * denominator) * 2n >= denominator) {
     units += 1n; // Match Math.round's tie direction, including negative values.
+  }
+  if (direction === "ceil" && numerator % denominator !== 0n) {
+    units += 1n;
   }
   return Number(`${units * unit.coefficient}e${unit.exponent}`);
 };
 
 export const roundToStep = (value: number, step: number): number =>
-  roundToIncrement(value, step, false);
+  roundToIncrement(value, step, "floor");
 
 export const roundToTick = (value: number, tick: number): number =>
-  roundToIncrement(value, tick, true);
+  roundToIncrement(value, tick, "nearest");
+
+// Preserve the requested protective boundary rather than rounding through it.
+export const roundProtectivePrice = (
+  value: number,
+  tick: number,
+  side: Exclude<PositionDirection, "flat">
+): number => roundToIncrement(value, tick, side === "long" ? "floor" : "ceil");
 
 export const riskRewardRatio = (entry: number, stop: number, takeProfit: number): number => {
   const risk = Math.abs(entry - stop);

@@ -93,6 +93,39 @@ const buildContext = (regime: DecisionContext["context_summary"]["regime"] = "tr
 });
 
 describe("StrategyPlanner", () => {
+  it.each(["LONG", "SHORT"] as const)("does not round a wrong-side %s invalidation into a valid boundary", (bias) => {
+    const context = buildContext(bias === "LONG" ? "trend_up" : "trend_down");
+    context.market_snapshot.markPrice = 1000.06;
+    const result = new StrategyPlanner(config).plan(context, {
+      bias, confidence: 0.8, setup_type: "breakout",
+      invalidation_price: bias === "LONG" ? 1000.07 : 1000.05,
+      holding_horizon_minutes: 60, reasoning_summary: "Wrong side before rounding."
+    });
+    expect(result.reasons).toContain(bias === "LONG" ? "long invalidation must be below entry" : "short invalidation must be above entry");
+  });
+
+  it.each([
+    ["LONG", 990.06, 990, 0.1],
+    ["SHORT", 1009.94, 1010, 0.1],
+    ["LONG", 990.08, 990, 0.125],
+    ["SHORT", 1009.92, 1010, 0.125]
+  ] as const)("rounds %s protection outward from %s to %s on tick %s", (bias, invalidation, expected, tickSize) => {
+    const context = buildContext(bias === "LONG" ? "trend_up" : "trend_down");
+    context.market_snapshot.markPrice = 1_000;
+    context.market_snapshot.filters = { tickSize, stepSize: 0.001, minQty: 0.001 };
+    const planning = new StrategyPlanner(config).plan(context, {
+      bias, confidence: 0.8, setup_type: "breakout", invalidation_price: invalidation,
+      holding_horizon_minutes: 60, reasoning_summary: "Preserve the intended boundary."
+    });
+    expect(planning.reasons).toEqual([]);
+    expect(planning.plan?.stopLoss).toBe(expected);
+    expect(planning.plan?.invalidationPrice).toBe(expected);
+    expect(planning.plan?.initialRiskPerUnit).toBe(10);
+    expect(planning.plan?.trailingOffset).toBe(10);
+    expect(planning.plan?.tp1).toBe(bias === "LONG" ? 1015 : 985);
+    expect(planning.plan?.tp2).toBe(bias === "LONG" ? 1030 : 970);
+  });
+
   it("builds a deterministic execution plan for a bullish breakout", () => {
     const planner = new StrategyPlanner(config);
     const result = planner.plan(buildContext(), {
