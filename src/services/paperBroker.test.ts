@@ -103,6 +103,7 @@ describe("PaperBroker", () => {
       action, side: action === "LONG" ? "BUY" : "SELL", entryType: "MARKET", leverage: 2,
       quantity: 0.02, notionalUsd: entry * 0.02, entryPrice: entry,
       stopLoss: action === "LONG" ? 99 : 102,
+      tp2: action === "LONG" ? 200 : 50,
       initialRiskPerUnit: 1, breakEvenTriggerR: 1, trailingTriggerR: 1.5,
       trailingOffset: 1.06, confidence: 0.8, entryReason: "Directional protection", reasoningSummary: "Directional protection"
     }, ctx);
