@@ -74,13 +74,13 @@ export class PaperBroker implements Broker {
     this.markToMarket(snapshot.markPrice);
 
     const lifecycleAdjustment = this.advanceLifecycle(snapshot);
-    if (lifecycleAdjustment) {
+    if (this.position.quantity <= 0) {
       return lifecycleAdjustment;
     }
 
     const exitReason = this.resolveExitReason(snapshot);
     if (!exitReason) {
-      return null;
+      return lifecycleAdjustment;
     }
 
     return this.closeOrReducePosition(
