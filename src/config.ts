@@ -10,6 +10,16 @@ const csvToList = (raw: string): string[] =>
     .map((value) => value.trim())
     .filter(Boolean);
 
+const feedList = z.string().default("").transform(csvToList).pipe(
+  z.array(z.string().url().refine((value) => {
+    try {
+      return ["http:", "https:"].includes(new URL(value).protocol);
+    } catch {
+      return false;
+    }
+  }, "Expected a feed URL using http: or https:"))
+);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_PORT: z.coerce.number().int().positive().default(3000),
@@ -24,8 +34,8 @@ const envSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_CHAT_ID: z.string().default(""),
-  NEWS_FEEDS: z.string().default(""),
-  MACRO_FEEDS: z.string().default(""),
+  NEWS_FEEDS: feedList,
+  MACRO_FEEDS: feedList,
   ONCHAIN_BASE_URL: z.string().url().default("https://mempool.space/api"),
   RISK_PER_TRADE: z.coerce.number().positive().default(0.005),
   MAX_LEVERAGE: z.coerce.number().int().positive().default(3),
@@ -100,8 +110,8 @@ export const config: AppConfig = {
     chatId: parsed.TELEGRAM_CHAT_ID || undefined
   },
   feeds: {
-    news: csvToList(parsed.NEWS_FEEDS),
-    macro: csvToList(parsed.MACRO_FEEDS)
+    news: parsed.NEWS_FEEDS,
+    macro: parsed.MACRO_FEEDS
   },
   onchainBaseUrl: parsed.ONCHAIN_BASE_URL,
   riskPolicy: {
