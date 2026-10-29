@@ -98,6 +98,11 @@ The doctor output reports connectivity for PostgreSQL, Redis, the local HTTP ser
 
 `./scripts/run-live.sh` sets `TRADING_MODE=live` for that process; it does not configure or validate your account for you. Use it only after paper-mode validation and after setting both `BINANCE_API_KEY` and `BINANCE_API_SECRET` in a local, uncommitted `.env` file. Review the risk settings in the same file—especially `RISK_PER_TRADE`, `MAX_LEVERAGE`, `MAX_DAILY_LOSS`, `MAX_WEEKLY_DRAWDOWN`, `MAX_OPEN_POSITIONS`, and `COOLDOWN_MINUTES`—before starting the live path.
 
+`NEWS_FEEDS` and `MACRO_FEEDS` accept optional comma-separated HTTP(S) feed URLs.
+Whitespace and empty entries are ignored. Every non-empty entry is validated
+at startup; a malformed URL or unsupported scheme stops configuration loading
+and identifies the affected variable and list index.
+
 Useful commands:
 
 - `npm test`
