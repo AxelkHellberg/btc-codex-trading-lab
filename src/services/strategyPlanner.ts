@@ -7,6 +7,7 @@ import type {
   TradeAction
 } from "../domain/types.js";
 import { clamp, normalizeQuantity, roundToTick } from "../lib/math.js";
+import { entryFundingRate } from "../lib/entryFunding.js";
 
 export interface PlanningResult {
   normalizedSignal: StrategySignal;
@@ -84,7 +85,18 @@ export class StrategyPlanner {
     const capitalByRisk =
       distancePct > 0 ? (context.account_state.equity * this.config.riskPolicy.riskPerTrade) / distancePct : 0;
     const capitalBySize = context.account_state.equity * sizePct * leverage;
-    const allowedNotional = Math.min(capitalByRisk, capitalBySize);
+    const availableBalance = context.account_state.availableBalance;
+    if (!Number.isFinite(availableBalance) || availableBalance <= 0) {
+      reasons.push("available balance must be finite and positive");
+      return { normalizedSignal, reasons };
+    }
+    const fundingRate = entryFundingRate(this.config, leverage);
+    if (!Number.isFinite(fundingRate)) {
+      reasons.push("invalid entry funding requirement");
+      return { normalizedSignal, reasons };
+    }
+    const capitalByMargin = availableBalance / fundingRate;
+    const allowedNotional = Math.min(capitalByRisk, capitalBySize, capitalByMargin);
     const quantity = normalizeQuantity(allowedNotional / entryPrice, context.market_snapshot.filters);
     if (quantity <= 0) {
       reasons.push("calculated quantity is below exchange minimum");

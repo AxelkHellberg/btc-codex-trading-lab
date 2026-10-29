@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config.js";
 import type { DecisionContext, ExecutionPlan, RiskEvaluation, StrategySignal } from "../domain/types.js";
 import { normalizeQuantity, riskRewardRatio } from "../lib/math.js";
+import { entryFundingRate } from "../lib/entryFunding.js";
 import type { PlanningResult } from "./strategyPlanner.js";
 
 export class RiskEngine {
@@ -96,6 +97,21 @@ export class RiskEngine {
     }
 
     const entry = executionPlan.entryPrice;
+    // Recompute from quantity and price: a supplied notional may be stale or understated.
+    const fundingPrice = Math.max(entry, context.market_snapshot.markPrice);
+    const requiredFunds = executionPlan.quantity * fundingPrice * entryFundingRate(this.config, executionPlan.leverage);
+    const availableBalance = context.account_state.availableBalance;
+    if (!Number.isFinite(availableBalance) || availableBalance <= 0) {
+      reasons.push("available balance must be finite and positive");
+    } else if (
+      !Number.isFinite(requiredFunds) || requiredFunds <= 0 ||
+      !Number.isFinite(entry) || entry <= 0 ||
+      !Number.isFinite(context.market_snapshot.markPrice) || context.market_snapshot.markPrice <= 0
+    ) {
+      reasons.push("invalid entry funding requirement");
+    } else if (requiredFunds > availableBalance) {
+      reasons.push("entry margin and fee reserve exceeds available balance");
+    }
     const isLong = normalizedSignal.bias === "LONG";
     const rr = riskRewardRatio(entry, executionPlan.stopLoss, executionPlan.tp2);
     if (rr < this.config.riskPolicy.minRiskReward) {

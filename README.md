@@ -71,6 +71,8 @@ Runtime flow:
 - Every decision is persisted with context, rationale, and approval outcome
 - The system defaults to paper trading and should be treated as experimental research software
 
+New entry sizing also respects reported available balance. For a planned notional `N` and leverage `L`, it reserves `N * (1 + SLIPPAGE_BPS / 10000) * (1 / L + TAKER_FEE_BPS / 10000)`: initial margin plus the opening taker fee at a conservative adverse fill, for either direction. The planner rounds quantities down and the risk engine independently recomputes this requirement from quantity and the higher of planned entry price and current mark. Unusable balances reject new entries; CLOSE and REDUCE do not require new entry margin. This is a local funding check based on the supplied snapshot and configured estimates, not a guarantee of exchange acceptance or future margin availability.
+
 ## Local development
 
 1. Copy `.env.example` to `.env`
