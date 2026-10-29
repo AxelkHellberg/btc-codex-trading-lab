@@ -89,6 +89,17 @@ export async function createHttpServer(
         box-shadow: 0 0 16px rgba(64, 216, 144, 0.7);
       }
 
+      .status-pill[data-state="error"] .dot,
+      .status-pill[data-state="stale"] .dot {
+        background: var(--amber);
+        box-shadow: none;
+      }
+
+      .status-pill[data-state="connecting"] .dot {
+        background: var(--muted);
+        box-shadow: none;
+      }
+
       .grid {
         display: grid;
         grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -228,7 +239,7 @@ export async function createHttpServer(
           <h1>BTC Codex Trader</h1>
           <div class="sub">Paper mode dashboard. Auto-refresh every 2 seconds.</div>
         </div>
-        <div class="status-pill">
+        <div class="status-pill" id="dashboardStatus" data-state="connecting" role="status" aria-live="polite">
           <span class="dot"></span>
           <span id="heartbeat">Connecting...</span>
         </div>
@@ -413,10 +424,19 @@ export async function createHttpServer(
 
       const formatTs = (value) => value ? new Date(value).toLocaleString() : "-";
 
-      async function refresh() {
+      let lastRenderedAt = null;
+
+      const setFreshness = (state, text) => {
+        document.getElementById("dashboardStatus").dataset.state = state;
+        document.getElementById("heartbeat").textContent = text;
+      };
+
+      async function renderDashboard() {
         const response = await fetch("/status");
+        if (!response.ok) {
+          throw new Error("Status request failed (HTTP " + response.status + ")");
+        }
         const data = await response.json();
-        document.getElementById("heartbeat").textContent = "Live · " + new Date().toLocaleTimeString();
         setText("equity", money.format(data.account.equity), trendClass(data.account.dailyPnl));
         setText("walletBalance", money.format(data.account.walletBalance), "neutral");
         setText("dailyPnl", money.format(data.account.dailyPnl), trendClass(data.account.dailyPnl));
@@ -503,6 +523,20 @@ export async function createHttpServer(
         document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
       }
 
+      async function refresh() {
+        try {
+          await renderDashboard();
+          lastRenderedAt = new Date().toLocaleTimeString();
+          setFreshness("live", "Live · " + lastRenderedAt);
+        } catch (error) {
+          setFreshness(
+            lastRenderedAt === null ? "error" : "stale",
+            lastRenderedAt === null ? "Dashboard unavailable" : "Stale · last update " + lastRenderedAt
+          );
+          console.error(error);
+        }
+      }
+
       document.getElementById("triggerBtn").addEventListener("click", async () => {
         const button = document.getElementById("triggerBtn");
         button.disabled = true;
@@ -516,12 +550,9 @@ export async function createHttpServer(
         }
       });
 
-      refresh().catch((error) => {
-        document.getElementById("heartbeat").textContent = "Dashboard error";
-        console.error(error);
-      });
+      void refresh();
       setInterval(() => {
-        refresh().catch(console.error);
+        void refresh();
       }, 2000);
     </script>
   </body>
