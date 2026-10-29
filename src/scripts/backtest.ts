@@ -1,10 +1,11 @@
 import { config } from "../config.js";
-import type { DecisionContext, StrategySignal } from "../domain/types.js";
+import type { AccountState, DecisionContext, StrategySignal } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 import { logger } from "../logger.js";
 import { PaperBroker } from "../services/brokers.js";
 import { RiskEngine } from "../services/riskEngine.js";
 import { StrategyPlanner } from "../services/strategyPlanner.js";
+import { evaluateAccountRisk } from "../services/accountRisk.js";
 
 type Kline = [
   number,
@@ -213,6 +214,16 @@ const main = async (): Promise<void> => {
       }
     }
     const snapshotState = broker.getState?.();
+    const accountState: AccountState = snapshotState?.accountState ?? {
+      equity: initialBalance,
+      walletBalance: initialBalance,
+      availableBalance: initialBalance,
+      dailyPnl: 0,
+      weeklyDrawdown: 0,
+      consecutiveLosses: 0,
+      openOrders: 0,
+      updatedAt: current.closeTime
+    };
 
     const context: DecisionContext = {
       market_snapshot: marketSnapshot,
@@ -234,22 +245,8 @@ const main = async (): Promise<void> => {
         unrealizedPnl: 0,
         realizedPnl: 0
       },
-      account_state: snapshotState?.accountState ?? {
-        equity: initialBalance,
-        walletBalance: initialBalance,
-        availableBalance: initialBalance,
-        dailyPnl: 0,
-        weeklyDrawdown: 0,
-        consecutiveLosses: 0,
-        openOrders: 0,
-        updatedAt: current.closeTime
-      },
-      risk_state: {
-        withinDailyLossLimit: true,
-        withinWeeklyDrawdown: true,
-        cooldownActive: false,
-        reasons: []
-      },
+      account_state: accountState,
+      risk_state: evaluateAccountRisk(accountState, config.riskPolicy, replayTime),
       context_summary: {
         regime:
           marketSnapshot.emaFast > marketSnapshot.emaMedium &&

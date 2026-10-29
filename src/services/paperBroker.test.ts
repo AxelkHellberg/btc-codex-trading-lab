@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "../config.js";
 import type { DecisionContext, ExecutionPlan } from "../domain/types.js";
 import { PaperBroker } from "./brokers.js";
+import { evaluateAccountRisk } from "./accountRisk.js";
 import { StrategyPlanner } from "./strategyPlanner.js";
 
 const context = (): DecisionContext => ({
@@ -93,6 +94,28 @@ const context = (): DecisionContext => ({
 });
 
 describe("PaperBroker", () => {
+  it("uses the replay loss timestamps to start and expire account cooldown", async () => {
+    let now = Date.UTC(2020, 0, 1);
+    const broker = new PaperBroker({ ...config, slippageBps: 0 }, () => now);
+    const plan: ExecutionPlan = {
+      action: "LONG", side: "BUY", entryType: "MARKET", leverage: 2,
+      quantity: 0.02, notionalUsd: 2_000, entryPrice: 100_000,
+      stopLoss: 99_000, confidence: 0.8, entryReason: "Replay loss", reasoningSummary: "Replay loss"
+    };
+    for (let i = 0; i < 2; i += 1) {
+      await broker.execute(plan, context());
+      now += 60_000;
+      await broker.onMarketSnapshot({ ...context().market_snapshot, markPrice: 98_000, timestamp: now });
+    }
+    const account = broker.getState().accountState;
+    expect(account.consecutiveLosses).toBe(2);
+    expect(account.lastLossAt).toBe(now);
+    const policy = { maxDailyLoss: 1, maxWeeklyDrawdown: 1, cooldownMinutes: 60 };
+    expect(evaluateAccountRisk(account, policy, now).cooldownActive).toBe(true);
+    expect(evaluateAccountRisk(account, policy, now + 60 * 60_000 - 1).cooldownActive).toBe(true);
+    expect(evaluateAccountRisk(account, policy, now + 60 * 60_000).cooldownActive).toBe(false);
+  });
+
   it("manages break-even, partial TP, and trailing stop on a long trade", async () => {
     const broker = new PaperBroker(config);
     const plan: ExecutionPlan = {

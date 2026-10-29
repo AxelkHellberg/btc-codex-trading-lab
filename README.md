@@ -110,6 +110,8 @@ Useful commands:
 
 Historical replay advances the planner and paper broker clock to each candle close. Holding deadlines, trade timestamps, and holding durations therefore follow simulated time; ordinary runtime execution continues to use the system clock.
 
+Replay entry decisions use the same account loss, drawdown, and cooldown checks as the runtime, evaluated from the paper broker's current account state at the candle close. This reuses the existing account counters; it does not add daily/weekly rollover or change their baseline policy.
+
 ## Operations
 
 macOS background run:
