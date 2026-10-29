@@ -63,9 +63,18 @@ export class ExecutionEngine {
     this.runtime.setAccount(result.accountState);
     this.runtime.setPosition(result.positionState);
 
+    const failures: unknown[] = [];
     if (result.tradeRecord) {
       this.runtime.upsertTrade(result.tradeRecord);
-      await this.store.saveTrade(result.tradeRecord);
+      try {
+        await this.store.saveTrade(result.tradeRecord);
+      } catch (error) {
+        failures.push(error);
+        this.logger.error(
+          { tradeId: result.tradeId, accepted: result.accepted },
+          "Trade audit persistence failed after broker result"
+        );
+      }
     }
 
     if (result.accepted) {
@@ -75,9 +84,23 @@ export class ExecutionEngine {
         "reasoning" in result.tradeRecord.details
           ? String((result.tradeRecord.details as { reasoning?: string }).reasoning ?? "")
           : fallbackReasoning) ?? "";
-      await this.notifier.notify(
-        `[${this.config.tradingMode}] ${result.message}${reasoning ? `\n${reasoning}` : ""}`
-      );
+      const persistenceWarning = failures.length > 0 ? "\nWarning: trade audit persistence failed." : "";
+      try {
+        await this.notifier.notify(
+          `[${this.config.tradingMode}] ${result.message}${reasoning ? `\n${reasoning}` : ""}${persistenceWarning}`
+        );
+      } catch (error) {
+        failures.push(error);
+        this.logger.error({ tradeId: result.tradeId }, "Accepted execution notification failed");
+      }
+    }
+
+    // The broker has already acted. Surface failures without replaying any side effect.
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Execution result persistence and notification failed");
     }
   }
 
