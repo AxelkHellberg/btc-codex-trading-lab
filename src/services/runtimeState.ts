@@ -11,6 +11,7 @@ import type {
   PositionState,
   RiskState
 } from "../domain/types.js";
+import { evaluateAccountRisk } from "./accountRisk.js";
 
 export class RuntimeState {
   private latestMarket: MarketSnapshot | null = null;
@@ -105,32 +106,7 @@ export class RuntimeState {
     maxWeeklyDrawdown: number;
     cooldownMinutes: number;
   }): RiskState {
-    const reasons: string[] = [];
-    const dailyLossHit = this.account.dailyPnl <= -policy.maxDailyLoss * this.account.walletBalance;
-    const weeklyDrawdownHit = this.account.weeklyDrawdown >= policy.maxWeeklyDrawdown;
-    const cooldownActive =
-      this.account.consecutiveLosses >= 2 &&
-      this.account.lastLossAt !== undefined &&
-      Date.now() - this.account.lastLossAt < policy.cooldownMinutes * 60_000;
-
-    if (dailyLossHit) {
-      reasons.push("daily loss limit reached");
-    }
-
-    if (weeklyDrawdownHit) {
-      reasons.push("weekly drawdown limit reached");
-    }
-
-    if (cooldownActive) {
-      reasons.push("loss cooldown active");
-    }
-
-    return {
-      withinDailyLossLimit: !dailyLossHit,
-      withinWeeklyDrawdown: !weeklyDrawdownHit,
-      cooldownActive,
-      reasons
-    };
+    return evaluateAccountRisk(this.account, policy);
   }
 
   public buildDecisionContext(
