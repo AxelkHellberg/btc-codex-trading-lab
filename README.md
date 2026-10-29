@@ -98,6 +98,11 @@ The doctor output reports connectivity for PostgreSQL, Redis, the local HTTP ser
 
 `./scripts/run-live.sh` sets `TRADING_MODE=live` for that process; it does not configure or validate your account for you. Use it only after paper-mode validation and after setting both `BINANCE_API_KEY` and `BINANCE_API_SECRET` in a local, uncommitted `.env` file. Review the risk settings in the same file—especially `RISK_PER_TRADE`, `MAX_LEVERAGE`, `MAX_DAILY_LOSS`, `MAX_WEEKLY_DRAWDOWN`, `MAX_OPEN_POSITIONS`, and `COOLDOWN_MINUTES`—before starting the live path.
 
+Exchange endpoint overrides must use `https://` for `BINANCE_FUTURES_BASE_URL`
+and `wss://` for `BINANCE_FUTURES_WS_URL`. Testnet and proxy hosts are supported
+with these secure schemes; plaintext or mismatched schemes fail configuration
+loading before any exchange connection is attempted.
+
 Useful commands:
 
 - `npm test`

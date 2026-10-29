@@ -10,14 +10,23 @@ const csvToList = (raw: string): string[] =>
     .map((value) => value.trim())
     .filter(Boolean);
 
+const secureEndpoint = (protocol: "https:" | "wss:") =>
+  z.string().url().refine((value) => {
+    try {
+      return new URL(value).protocol === protocol;
+    } catch {
+      return false;
+    }
+  }, `Expected an endpoint using ${protocol}`);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.string().default("info"),
   TRADING_MODE: z.enum(["paper", "live"]).default("paper"),
   SYMBOL: z.string().default("BTCUSDT"),
-  BINANCE_FUTURES_BASE_URL: z.string().url().default("https://fapi.binance.com"),
-  BINANCE_FUTURES_WS_URL: z.string().url().default("wss://fstream.binance.com/stream"),
+  BINANCE_FUTURES_BASE_URL: secureEndpoint("https:").default("https://fapi.binance.com"),
+  BINANCE_FUTURES_WS_URL: secureEndpoint("wss:").default("wss://fstream.binance.com/stream"),
   BINANCE_API_KEY: z.string().default(""),
   BINANCE_API_SECRET: z.string().default(""),
   POSTGRES_URL: z.string().default("postgres://postgres:postgres@localhost:5432/trader"),
