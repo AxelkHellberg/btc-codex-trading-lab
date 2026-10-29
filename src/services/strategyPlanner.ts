@@ -138,10 +138,7 @@ export class StrategyPlanner {
     const quantity =
       signal.bias === "CLOSE"
         ? existing.quantity
-        : normalizeQuantity(
-            Math.max(existing.quantity * 0.5, context.market_snapshot.filters?.minQty ?? 0),
-            context.market_snapshot.filters
-          ) || existing.quantity;
+        : normalizeQuantity(existing.quantity * 0.5, context.market_snapshot.filters);
 
     return {
       action: signal.bias,

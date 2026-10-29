@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "../config.js";
 import type { DecisionContext } from "../domain/types.js";
 import { StrategyPlanner } from "./strategyPlanner.js";
+import { RiskEngine } from "./riskEngine.js";
 
 const buildContext = (regime: DecisionContext["context_summary"]["regime"] = "trend_up"): DecisionContext => ({
   market_snapshot: {
@@ -93,6 +94,52 @@ const buildContext = (regime: DecisionContext["context_summary"]["regime"] = "tr
 });
 
 describe("StrategyPlanner", () => {
+  it.each([
+    ["long", 0.001, 0.001, 0],
+    ["short", 0.001, 0.001, 0],
+    ["long", 0.003, 0.002, 0],
+    ["short", 0.003, 0.002, 0],
+    ["long", 0.003, 0.001, 0.001],
+    ["short", 0.004, 0.001, 0.002]
+  ] as const)("preserves half-size REDUCE intent for %s quantity %s with minimum %s", (side, quantity, minQty, expected) => {
+    const context = buildContext();
+    context.position_state = { ...context.position_state, side, quantity, entryPrice: 100_000 };
+    context.market_snapshot.filters = { tickSize: 0.1, stepSize: 0.001, minQty };
+    const planning = new StrategyPlanner(config).plan(context, {
+      bias: "REDUCE",
+      confidence: 0.8,
+      setup_type: "breakout",
+      holding_horizon_minutes: 60,
+      reasoning_summary: "Reduce exposure without flattening."
+    });
+    expect(planning.plan?.quantity).toBe(expected);
+    expect(planning.plan?.quantity).toBeLessThan(quantity);
+    const evaluation = new RiskEngine(config).evaluate(context, planning);
+    expect(evaluation.approved).toBe(expected > 0);
+    if (expected === 0) {
+      expect(evaluation.reasons).toContain("reduction quantity rounds to zero");
+    } else {
+      expect(evaluation.executionPlan?.quantity).toBe(expected);
+      expect(evaluation.executionPlan?.side).toBe(side === "long" ? "SELL" : "BUY");
+    }
+  });
+
+  it.each(["long", "short"] as const)("keeps explicit CLOSE available for a small %s position", (side) => {
+    const context = buildContext();
+    context.position_state = { ...context.position_state, side, quantity: 0.001, entryPrice: 100_000 };
+    const planning = new StrategyPlanner(config).plan(context, {
+      bias: "CLOSE",
+      confidence: 0.8,
+      setup_type: "breakout",
+      holding_horizon_minutes: 60,
+      reasoning_summary: "Explicitly close all exposure."
+    });
+    const evaluation = new RiskEngine(config).evaluate(context, planning);
+    expect(evaluation.approved).toBe(true);
+    expect(evaluation.executionPlan?.quantity).toBe(0.001);
+    expect(evaluation.executionPlan?.action).toBe("CLOSE");
+  });
+
   it("builds a deterministic execution plan for a bullish breakout", () => {
     const planner = new StrategyPlanner(config);
     const result = planner.plan(buildContext(), {
