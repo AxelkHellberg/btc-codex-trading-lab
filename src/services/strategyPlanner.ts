@@ -6,7 +6,7 @@ import type {
   StrategySignal,
   TradeAction
 } from "../domain/types.js";
-import { clamp, normalizeQuantity, roundToTick } from "../lib/math.js";
+import { clamp, normalizeQuantity, roundProtectivePrice, roundToTick } from "../lib/math.js";
 
 export interface PlanningResult {
   normalizedSignal: StrategySignal;
@@ -51,17 +51,19 @@ export class StrategyPlanner {
     }
 
     const entryPrice = context.market_snapshot.markPrice;
-    const invalidationPrice = normalizedSignal.invalidation_price ?? undefined;
-    if (invalidationPrice === undefined) {
+    const rawInvalidation = normalizedSignal.invalidation_price ?? undefined;
+    if (rawInvalidation === undefined) {
       reasons.push("missing invalidation price");
       return { normalizedSignal, reasons };
     }
 
     const isLong = normalizedSignal.bias === "LONG";
-    if (isLong && invalidationPrice >= entryPrice) {
+    const tickSize = context.market_snapshot.filters?.tickSize ?? 0.1;
+    const invalidationPrice = roundProtectivePrice(rawInvalidation, tickSize, isLong ? "long" : "short");
+    if (isLong && (rawInvalidation >= entryPrice || invalidationPrice >= entryPrice)) {
       reasons.push("long invalidation must be below entry");
     }
-    if (!isLong && invalidationPrice <= entryPrice) {
+    if (!isLong && (rawInvalidation <= entryPrice || invalidationPrice <= entryPrice)) {
       reasons.push("short invalidation must be above entry");
     }
 
@@ -91,7 +93,6 @@ export class StrategyPlanner {
     }
 
     const side = isLong ? "BUY" : "SELL";
-    const tickSize = context.market_snapshot.filters?.tickSize ?? 0.1;
     const tp1Raw = isLong ? entryPrice + initialRiskPerUnit * 1.5 : entryPrice - initialRiskPerUnit * 1.5;
     const tp2Raw = isLong ? entryPrice + initialRiskPerUnit * 3 : entryPrice - initialRiskPerUnit * 3;
     const trailingOffset = initialRiskPerUnit;
@@ -107,20 +108,20 @@ export class StrategyPlanner {
         quantity,
         notionalUsd: quantity * entryPrice,
         entryPrice,
-        stopLoss: roundToTick(invalidationPrice, tickSize),
+        stopLoss: invalidationPrice,
         tp1: roundToTick(tp1Raw, tickSize),
         tp2: roundToTick(tp2Raw, tickSize),
         breakEvenTriggerR: 1,
         trailingTriggerR: 2,
-        trailingOffset: roundToTick(trailingOffset, tickSize),
-        initialRiskPerUnit: roundToTick(initialRiskPerUnit, tickSize),
+        trailingOffset,
+        initialRiskPerUnit,
         maxHoldUntil: Date.now() + normalizedSignal.holding_horizon_minutes * 60_000,
         confidence: normalizedSignal.confidence,
         setupType: normalizedSignal.setup_type,
         regimeAtEntry: context.context_summary.regime,
         entryReason: normalizedSignal.reasoning_summary,
         reasoningSummary: normalizedSignal.reasoning_summary,
-        invalidationPrice: roundToTick(invalidationPrice, tickSize)
+        invalidationPrice
       }
     };
   }

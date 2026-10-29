@@ -14,7 +14,7 @@ import type {
   PositionState
 } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
-import { estimateSlippagePrice, roundToTick, signedPnl } from "../lib/math.js";
+import { estimateSlippagePrice, roundProtectivePrice, signedPnl } from "../lib/math.js";
 
 export interface Broker {
   readonly name: string;
@@ -213,6 +213,10 @@ export class PaperBroker implements Broker {
   }
 
   private advanceLifecycle(snapshot: MarketSnapshot): ExecutionResult | null {
+    const side = this.position.side;
+    if (side === "flat") {
+      return null;
+    }
     const favorableMove = this.getFavorableMove(snapshot.markPrice);
     const initialRisk = this.position.initialRiskPerUnit ?? 0;
     const tickSize = snapshot.filters?.tickSize ?? 0.1;
@@ -224,7 +228,7 @@ export class PaperBroker implements Broker {
     ) {
       this.position = {
         ...this.position,
-        stopLoss: roundToTick(this.position.entryPrice, tickSize),
+        stopLoss: roundProtectivePrice(this.position.entryPrice, tickSize, side),
         breakEvenArmed: true
       };
     }
@@ -269,7 +273,7 @@ export class PaperBroker implements Broker {
         this.position.side === "long"
           ? snapshot.markPrice - this.position.trailingOffset
           : snapshot.markPrice + this.position.trailingOffset;
-      const roundedStop = roundToTick(nextStop, tickSize);
+      const roundedStop = roundProtectivePrice(nextStop, tickSize, side);
       const shouldTighten =
         this.position.side === "long"
           ? this.position.stopLoss === undefined || roundedStop > this.position.stopLoss

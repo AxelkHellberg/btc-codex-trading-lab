@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeQuantity, roundToStep, roundToTick } from "./math.js";
+import { normalizeQuantity, roundProtectivePrice, roundToStep, roundToTick } from "./math.js";
 
 describe("exchange increment rounding", () => {
+  it.each([
+    ["long", 100.06, 0.1, 100],
+    ["short", 100.14, 0.1, 100.2],
+    ["long", 0.3, 0.1, 0.3],
+    ["short", 0.3, 0.1, 0.3],
+    ["long", 12.2, 0.125, 12.125],
+    ["short", 12.2, 0.125, 12.25],
+    ["long", 3.74e-120, 1.25e-120, 2.5e-120],
+    ["short", 3.74e-120, 1.25e-120, 3.75e-120]
+  ] as const)("keeps %s protective price %s outward on increment %s", (side, value, tick, expected) => {
+    const rounded = roundProtectivePrice(value, tick, side);
+    expect(rounded).toBe(expected);
+    expect(roundProtectivePrice(rounded, tick, side)).toBe(expected);
+    expect(side === "long" ? rounded <= value : rounded >= value).toBe(true);
+  });
+
   it.each([
     [1.25, 0.25, 1.25],
     [1.74, 0.25, 1.5],
