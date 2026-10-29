@@ -130,6 +130,16 @@ Linux VM template:
 - `GET /status`
 - `POST /trigger`
 
+The Docker runtime image probes `/healthz` on `127.0.0.1` every 30 seconds,
+using `APP_PORT` (default `3000`) inside the container. Compose inherits this
+image healthcheck. Startup has a 90-second grace period; three failed checks
+mark the container unhealthy. The probe requires HTTP 200 and `{ "ok": true }`,
+with a three-second deadline including the response body.
+
+This reports availability of the application's HTTP health endpoint. It does
+not replace `npm run doctor` or prove that external services are healthy.
+Docker health status by itself does not restart an unhealthy container.
+
 ## CI
 
 GitHub Actions runs:
