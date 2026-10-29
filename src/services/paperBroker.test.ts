@@ -100,7 +100,8 @@ describe("PaperBroker", () => {
     const plan: ExecutionPlan = {
       action: "LONG", side: "BUY", entryType: "MARKET", leverage: 2,
       quantity: 0.02, notionalUsd: 2_000, entryPrice: 100_000,
-      stopLoss: 99_000, confidence: 0.8, entryReason: "Replay loss", reasoningSummary: "Replay loss"
+      stopLoss: 99_000, tp2: 120_000, initialRiskPerUnit: 1_000,
+      confidence: 0.8, entryReason: "Replay loss", reasoningSummary: "Replay loss"
     };
     for (let i = 0; i < 2; i += 1) {
       await broker.execute(plan, context());
