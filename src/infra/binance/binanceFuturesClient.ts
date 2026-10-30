@@ -11,26 +11,6 @@ import type {
 } from "../../domain/types.js";
 import { fetchJson, HttpError } from "../../lib/http.js";
 
-type BalanceResponse = Array<{
-  asset: string;
-  balance: string;
-  availableBalance: string;
-  crossWalletBalance: string;
-  crossUnPnl: string;
-  updateTime: number;
-}>;
-
-type PositionRiskResponse = Array<{
-  symbol: string;
-  positionAmt: string;
-  entryPrice: string;
-  markPrice: string;
-  unRealizedProfit: string;
-  liquidationPrice: string;
-  leverage?: string;
-  updateTime: number;
-}>;
-
 type ExchangeInformationResponse = {
   symbols: Array<{
     symbol: string;
@@ -54,6 +34,27 @@ type KlineResponse = Array<
     string
   ]
 >;
+
+const liveStateRows = (value: unknown, endpoint: string): Record<string, unknown>[] => {
+  if (!Array.isArray(value) || value.some((row) => row === null || typeof row !== "object" || Array.isArray(row))) {
+    throw new Error(`Invalid Binance ${endpoint} response`);
+  }
+  return value as Record<string, unknown>[];
+};
+
+const liveStateNumber = (value: unknown, endpoint: string, field: string): number => {
+  if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
+    throw new Error(`Invalid Binance ${endpoint} field: ${field}`);
+  }
+  return Number(value);
+};
+
+const liveStateTimestamp = (value: unknown, endpoint: string): number => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid Binance ${endpoint} field: updateTime`);
+  }
+  return value;
+};
 
 export class BinanceFuturesClient {
   private userStreamKeepaliveTimer: NodeJS.Timeout | null = null;
@@ -166,39 +167,59 @@ export class BinanceFuturesClient {
   }
 
   public async getBalanceState(): Promise<AccountState> {
-    const balances = await this.signedGet<BalanceResponse>("/fapi/v3/balance");
-    const usdt = balances.find((entry) => entry.asset === "USDT");
-    let equity = 0;
-    if (usdt) {
-      for (const field of ["crossWalletBalance", "crossUnPnl"] as const) {
-        const value = usdt[field];
-        if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
-          throw new Error(`Invalid Binance USDT equity component: ${field}`);
-        }
+    const balances = liveStateRows(await this.signedGet<unknown>("/fapi/v3/balance"), "balance");
+    const matches = balances.filter((entry) => entry.asset === "USDT");
+    if (matches.length !== 1) {
+      throw new Error("Invalid Binance balance response: expected one USDT account");
+    }
+    const usdt = matches[0]!;
+    const walletBalance = liveStateNumber(usdt.balance, "balance", "balance");
+    const availableBalance = liveStateNumber(usdt.availableBalance, "balance", "availableBalance");
+    const updatedAt = liveStateTimestamp(usdt.updateTime, "balance");
+    for (const field of ["crossWalletBalance", "crossUnPnl"] as const) {
+      const value = usdt[field];
+      if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
+        throw new Error(`Invalid Binance USDT equity component: ${field}`);
       }
-      equity = Number(usdt.crossWalletBalance) + Number(usdt.crossUnPnl);
-      if (!Number.isFinite(equity)) {
-        throw new Error("Invalid Binance USDT equity: component sum is not finite");
-      }
+    }
+    const equity = Number(usdt.crossWalletBalance) + Number(usdt.crossUnPnl);
+    if (!Number.isFinite(equity)) {
+      throw new Error("Invalid Binance USDT equity: component sum is not finite");
     }
 
     return {
       equity,
-      walletBalance: Number(usdt?.balance ?? 0),
-      availableBalance: Number(usdt?.availableBalance ?? 0),
+      walletBalance,
+      availableBalance,
       dailyPnl: 0,
       weeklyDrawdown: 0,
       consecutiveLosses: 0,
       openOrders: 0,
-      updatedAt: Number(usdt?.updateTime ?? Date.now())
+      updatedAt
     };
   }
 
   public async getPositionState(symbol: string): Promise<PositionState> {
-    const positions = await this.signedGet<PositionRiskResponse>("/fapi/v3/positionRisk", { symbol });
-    const position = positions.find((entry) => entry.symbol === symbol && Number(entry.positionAmt) !== 0);
+    const positions = liveStateRows(await this.signedGet<unknown>("/fapi/v3/positionRisk", { symbol }), "positionRisk");
+    const matches = positions.filter((entry) => entry.symbol === symbol);
+    if (positions.some((entry) => typeof entry.symbol !== "string" || entry.symbol === "") ||
+      matches.length > 1 || (positions.length > 0 && matches.length === 0)) {
+      throw new Error("Invalid Binance positionRisk response: missing or ambiguous symbol");
+    }
+    const position = matches[0];
+    const signedQuantity = position ? liveStateNumber(position.positionAmt, "positionRisk", "positionAmt") : 0;
+    const entryPrice = position ? liveStateNumber(position.entryPrice, "positionRisk", "entryPrice") : 0;
+    const markPrice = position ? liveStateNumber(position.markPrice, "positionRisk", "markPrice") : 0;
+    const unrealizedPnl = position ? liveStateNumber(position.unRealizedProfit, "positionRisk", "unRealizedProfit") : 0;
+    // V3 omits leverage; retain the existing fallback and validate it when supplied.
+    const leverage = position?.leverage === undefined ? 1 : liveStateNumber(position.leverage, "positionRisk", "leverage");
+    const updatedAt = position ? liveStateTimestamp(position.updateTime, "positionRisk") : 0;
+    if (entryPrice < 0 || markPrice < 0 || (signedQuantity !== 0 && (entryPrice === 0 || markPrice === 0)) ||
+      !Number.isSafeInteger(leverage) || leverage < 1) {
+      throw new Error("Invalid Binance positionRisk response: price or leverage outside domain");
+    }
 
-    if (!position) {
+    if (signedQuantity === 0) {
       return {
         side: "flat",
         quantity: 0,
@@ -210,16 +231,16 @@ export class BinanceFuturesClient {
       };
     }
 
-    const quantity = Math.abs(Number(position.positionAmt));
+    const quantity = Math.abs(signedQuantity);
     return {
-      side: Number(position.positionAmt) > 0 ? "long" : "short",
+      side: signedQuantity > 0 ? "long" : "short",
       quantity,
-      entryPrice: Number(position.entryPrice),
-      markPrice: Number(position.markPrice),
-      leverage: Number(position.leverage ?? 1),
-      unrealizedPnl: Number(position.unRealizedProfit),
+      entryPrice,
+      markPrice,
+      leverage,
+      unrealizedPnl,
       realizedPnl: 0,
-      openedAt: Number(position.updateTime),
+      openedAt: updatedAt,
       sourceTradeId: undefined
     };
   }

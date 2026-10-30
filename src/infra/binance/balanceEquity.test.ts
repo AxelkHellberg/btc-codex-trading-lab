@@ -43,10 +43,8 @@ describe("Binance balance equity", () => {
     await expect(client().getBalanceState()).rejects.toThrow("Invalid Binance USDT equity");
   });
 
-  it("preserves zero when the response contains no USDT asset", async () => {
+  it("rejects a missing USDT account rather than fabricating a zero account", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([])));
-    await expect(client().getBalanceState()).resolves.toMatchObject({
-      equity: 0, walletBalance: 0, availableBalance: 0
-    });
+    await expect(client().getBalanceState()).rejects.toThrow("Invalid Binance balance response");
   });
 });
