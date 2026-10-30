@@ -147,9 +147,19 @@ export class CodexDecisionWorker {
             .split("\n")
             .map((line) => line.trim())
             .filter(Boolean);
-          for (const line of lines.reverse()) {
-            const parsed = JSON.parse(line) as { type?: string; item?: { type?: string; text?: string } };
-            if (parsed.type === "item.completed" && parsed.item?.type === "agent_message") {
+          let events: Array<unknown>;
+          try {
+            events = lines.map((line) => JSON.parse(line) as unknown);
+          } catch {
+            reject(new Error("Codex CLI emitted invalid JSON event output"));
+            return;
+          }
+          for (const event of events.reverse()) {
+            if (event === null || typeof event !== "object" || Array.isArray(event)) {
+              continue;
+            }
+            const parsed = event as { type?: string; item?: { type?: string; text?: string } | null };
+            if (parsed.type === "item.completed" && parsed.item?.type === "agent_message" && typeof parsed.item.text === "string") {
               resolve(parsed.item.text ?? "");
               return;
             }
