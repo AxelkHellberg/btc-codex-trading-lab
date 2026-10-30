@@ -232,15 +232,26 @@ export class MarketIngestor {
         Math.min(next.lastPrice, next.markPrice)
       );
       this.lastOpenInterest = openInterest;
-      await this.callbacks.onMarket(this.snapshot);
+      await this.deliverSupplementalCallback("onMarket", () => this.callbacks.onMarket(this.snapshot!));
       if (account) {
-        await this.callbacks.onAccount(account);
+        await this.deliverSupplementalCallback("onAccount", () => this.callbacks.onAccount(account));
       }
       if (position) {
-        await this.callbacks.onPosition(position);
+        await this.deliverSupplementalCallback("onPosition", () => this.callbacks.onPosition(position));
       }
     } catch (error) {
       this.logger.warn({ error, filtersLoaded: this.filtersLoaded }, "Failed to refresh supplemental market data");
+    }
+  }
+
+  private async deliverSupplementalCallback(
+    callback: keyof MarketCallbacks,
+    deliver: () => Promise<void> | void
+  ): Promise<void> {
+    try {
+      await deliver();
+    } catch {
+      this.logger.warn({ callback }, "Supplemental market callback failed");
     }
   }
 
