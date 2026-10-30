@@ -38,22 +38,31 @@ type ExchangeInformationResponse = {
   }>;
 };
 
-type KlineResponse = Array<
-  [
-    number,
-    string,
-    string,
-    string,
-    string,
-    string,
-    number,
-    string,
-    number,
-    string,
-    string,
-    string
-  ]
->;
+const marketObject = (value: unknown, endpoint: string): Record<string, unknown> => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid Binance ${endpoint} response`);
+  }
+  return value as Record<string, unknown>;
+};
+
+const marketDecimal = (value: unknown, endpoint: string, field: string, minimum?: number): number => {
+  if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
+    throw new Error(`Invalid Binance ${endpoint} field: ${field}`);
+  }
+  const number = Number(value);
+  if (minimum !== undefined && number < minimum) {
+    throw new Error(`Invalid Binance ${endpoint} field: ${field}`);
+  }
+  return number;
+};
+
+const positiveMarketDecimal = (value: unknown, endpoint: string, field: string): number => {
+  const number = marketDecimal(value, endpoint, field, 0);
+  if (number === 0) {
+    throw new Error(`Invalid Binance ${endpoint} field: ${field}`);
+  }
+  return number;
+};
 
 export class BinanceFuturesClient {
   private userStreamKeepaliveTimer: NodeJS.Timeout | null = null;
@@ -97,21 +106,21 @@ export class BinanceFuturesClient {
   }
 
   public async getOpenInterest(symbol: string): Promise<number> {
-    const response = await this.publicGet<{ openInterest: string }>("/fapi/v1/openInterest", { symbol });
-    return Number(response.openInterest);
+    const response = marketObject(await this.publicGet<unknown>("/fapi/v1/openInterest", { symbol }), "openInterest");
+    return marketDecimal(response.openInterest, "openInterest", "openInterest", 0);
   }
 
   public async getTopTraderLongShortRatio(symbol: string): Promise<number> {
-    const response = await this.publicGet<
-      Array<{
-        longShortRatio: string;
-      }>
-    >("/futures/data/topLongShortPositionRatio", {
+    const response = await this.publicGet<unknown>("/futures/data/topLongShortPositionRatio", {
       symbol,
       period: "5m",
       limit: "1"
     });
-    return Number(response[0]?.longShortRatio ?? 1);
+    if (!Array.isArray(response) || response.length === 0) {
+      throw new Error("Invalid Binance topTraderLongShortRatio response: missing observation");
+    }
+    const row = marketObject(response[0], "topTraderLongShortRatio");
+    return positiveMarketDecimal(row.longShortRatio, "topTraderLongShortRatio", "longShortRatio");
   }
 
   public async getMarkPrice(symbol: string): Promise<{
@@ -120,18 +129,17 @@ export class BinanceFuturesClient {
     fundingRate: number;
     nextFundingTime: number;
   }> {
-    const response = await this.publicGet<{
-      markPrice: string;
-      indexPrice: string;
-      lastFundingRate: string;
-      nextFundingTime: number;
-    }>("/fapi/v1/premiumIndex", { symbol });
+    const response = marketObject(await this.publicGet<unknown>("/fapi/v1/premiumIndex", { symbol }), "premiumIndex");
+    const nextFundingTime = response.nextFundingTime;
+    if (typeof nextFundingTime !== "number" || !Number.isSafeInteger(nextFundingTime) || nextFundingTime < 0) {
+      throw new Error("Invalid Binance premiumIndex field: nextFundingTime");
+    }
 
     return {
-      markPrice: Number(response.markPrice),
-      indexPrice: Number(response.indexPrice),
-      fundingRate: Number(response.lastFundingRate),
-      nextFundingTime: Number(response.nextFundingTime)
+      markPrice: positiveMarketDecimal(response.markPrice, "premiumIndex", "markPrice"),
+      indexPrice: positiveMarketDecimal(response.indexPrice, "premiumIndex", "indexPrice"),
+      fundingRate: marketDecimal(response.lastFundingRate, "premiumIndex", "lastFundingRate"),
+      nextFundingTime
     };
   }
 
@@ -149,20 +157,37 @@ export class BinanceFuturesClient {
       closeTime: number;
     }>
   > {
-    const response = await this.publicGet<KlineResponse>("/fapi/v1/klines", {
+    const response = await this.publicGet<unknown>("/fapi/v1/klines", {
       symbol,
       interval,
       limit
     });
 
-    return response.map((row) => ({
-      openTime: row[0],
-      high: Number(row[2]),
-      low: Number(row[3]),
-      close: Number(row[4]),
-      volume: Number(row[5]),
-      closeTime: row[6]
-    }));
+    if (!Array.isArray(response)) {
+      throw new Error("Invalid Binance klines response");
+    }
+    let previousOpenTime = -1;
+    return response.map((row: unknown) => {
+      if (!Array.isArray(row) || row.length < 7) {
+        throw new Error("Invalid Binance klines row");
+      }
+      const [openTime, , , , , , closeTime] = row;
+      if (typeof openTime !== "number" || !Number.isSafeInteger(openTime) || openTime < 0 ||
+        typeof closeTime !== "number" || !Number.isSafeInteger(closeTime) || closeTime < openTime ||
+        openTime <= previousOpenTime) {
+        throw new Error("Invalid Binance klines timestamps or ordering");
+      }
+      const open = positiveMarketDecimal(row[1], "klines", "open");
+      const high = positiveMarketDecimal(row[2], "klines", "high");
+      const low = positiveMarketDecimal(row[3], "klines", "low");
+      const close = positiveMarketDecimal(row[4], "klines", "close");
+      const volume = marketDecimal(row[5], "klines", "volume", 0);
+      if (low > Math.min(open, close) || high < Math.max(open, close) || low > high) {
+        throw new Error("Invalid Binance klines OHLC range");
+      }
+      previousOpenTime = openTime;
+      return { openTime, high, low, close, volume, closeTime };
+    });
   }
 
   public async getBalanceState(): Promise<AccountState> {
