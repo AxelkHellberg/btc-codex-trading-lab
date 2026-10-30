@@ -61,6 +61,9 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private supplementalPending: Promise<void> | null = null;
+  private supplementalGeneration = 0;
+  private stopped = false;
 
   public constructor(
     private readonly config: AppConfig,
@@ -70,6 +73,10 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.stopped = false;
+    this.supplementalGeneration += 1;
+    this.supplementalPending = null;
+    const generation = this.supplementalGeneration;
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
@@ -78,6 +85,7 @@ export class MarketIngestor {
     this.filtersLoaded = true;
     await this.callbacks.onMarket(this.snapshot);
     await this.refreshSupplemental();
+    if (this.stopped || generation !== this.supplementalGeneration) return;
     this.connectMarketSocket();
     this.refreshTimer = setInterval(() => {
       void this.refreshSupplemental();
@@ -89,6 +97,9 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.stopped = true;
+    this.supplementalGeneration += 1;
+    this.supplementalPending = null;
     this.client.stopUserStreamKeepalive();
     this.marketSocket?.close();
     this.userSocket?.close();
@@ -194,26 +205,50 @@ export class MarketIngestor {
     await this.callbacks.onMarket(next);
   }
 
-  private async refreshSupplemental(): Promise<void> {
-    if (!this.snapshot) {
-      return;
+  private refreshSupplemental(): Promise<void> {
+    if (!this.snapshot || this.stopped) {
+      return Promise.resolve();
     }
+    if (this.supplementalPending) {
+      return this.supplementalPending;
+    }
+    const pending = this.readSupplemental(this.supplementalGeneration).finally(() => {
+      if (this.supplementalPending === pending) {
+        this.supplementalPending = null;
+      }
+    });
+    this.supplementalPending = pending;
+    return pending;
+  }
 
-    try {
-      const [mark, openInterest, ratio, account, position] = await Promise.all([
-        this.client.getMarkPrice(this.config.symbol),
-        this.client.getOpenInterest(this.config.symbol),
-        this.client.getTopTraderLongShortRatio(this.config.symbol),
-        this.config.tradingMode === "live"
-          ? this.client.getBalanceState()
-          : Promise.resolve(null),
-        this.config.tradingMode === "live"
-          ? this.client.getPositionState(this.config.symbol)
-          : Promise.resolve(null)
+  private async readSupplemental(generation: number): Promise<void> {
+    const current = (): boolean => !this.stopped && generation === this.supplementalGeneration;
+    const component = async <T,>(name: string, read: () => Promise<T>, deliver: (value: T) => Promise<void>): Promise<void> => {
+      let value: T;
+      try {
+        value = await read();
+      } catch {
+        // Signed request failures can contain account data or signatures.
+        if (current()) this.logger.warn({ component: name }, "Supplemental upstream read failed");
+        return;
+      }
+      if (current()) await deliver(value);
+    };
+    const market = component("market", async () => {
+      // Wait for every public request even on rejection so a later batch never
+      // overlaps leftover requests from a failed public group.
+      const [mark, openInterest, ratio] = await Promise.allSettled([
+        Promise.resolve().then(() => this.client.getMarkPrice(this.config.symbol)),
+        Promise.resolve().then(() => this.client.getOpenInterest(this.config.symbol)),
+        Promise.resolve().then(() => this.client.getTopTraderLongShortRatio(this.config.symbol))
       ]);
-
+      if (mark.status === "rejected" || openInterest.status === "rejected" || ratio.status === "rejected") {
+        throw new Error("Supplemental market read failed");
+      }
+      return [mark.value, openInterest.value, ratio.value] as const;
+    }, async ([mark, openInterest, ratio]) => {
       const next: MarketSnapshot = {
-        ...this.snapshot,
+        ...this.snapshot!,
         markPrice: mark.markPrice,
         indexPrice: mark.indexPrice,
         fundingRate: mark.fundingRate,
@@ -225,23 +260,24 @@ export class MarketIngestor {
         timestamp: Date.now()
       };
       this.snapshot = this.applyDerivedMetrics(
-        next,
-        next.lastPrice,
-        next.volume1m,
-        Math.max(next.lastPrice, next.markPrice),
-        Math.min(next.lastPrice, next.markPrice)
+        next, next.lastPrice, next.volume1m,
+        Math.max(next.lastPrice, next.markPrice), Math.min(next.lastPrice, next.markPrice)
       );
       this.lastOpenInterest = openInterest;
-      await this.deliverSupplementalCallback("onMarket", () => this.callbacks.onMarket(this.snapshot!));
-      if (account) {
+      const snapshot = this.snapshot;
+      await this.deliverSupplementalCallback("onMarket", () => this.callbacks.onMarket(snapshot));
+    });
+    const privateReads = this.config.tradingMode === "live" ? [
+      component("account", () => this.client.getBalanceState(), async (account) => {
         await this.deliverSupplementalCallback("onAccount", () => this.callbacks.onAccount(account));
-      }
-      if (position) {
+      }),
+      component("position", () => this.client.getPositionState(this.config.symbol), async (position) => {
         await this.deliverSupplementalCallback("onPosition", () => this.callbacks.onPosition(position));
-      }
-    } catch (error) {
-      this.logger.warn({ error, filtersLoaded: this.filtersLoaded }, "Failed to refresh supplemental market data");
-    }
+      })
+    ] : [];
+    // Each component publishes when ready; a stalled or rejected peer cannot
+    // discard usable results. The batch remains single-flight until all settle.
+    await Promise.all([market, ...privateReads]);
   }
 
   private async deliverSupplementalCallback(

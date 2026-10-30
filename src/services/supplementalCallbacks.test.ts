@@ -44,14 +44,12 @@ const fixture = (mode = "live") => {
 };
 
 describe("supplemental callback delivery", () => {
-  it("delivers all three successfully fetched values in the existing order", async () => {
+  it("delivers all three successfully fetched values", async () => {
     const { callbacks, internal, logger } = fixture();
     await internal.refreshSupplemental();
     expect(callbacks.onMarket).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ markPrice: 101, openInterest: 11 }));
     expect(callbacks.onAccount).toHaveBeenCalledExactlyOnceWith(account);
     expect(callbacks.onPosition).toHaveBeenCalledExactlyOnceWith(position);
-    expect(callbacks.onMarket.mock.invocationCallOrder[0]).toBeLessThan(callbacks.onAccount.mock.invocationCallOrder[0]!);
-    expect(callbacks.onAccount.mock.invocationCallOrder[0]).toBeLessThan(callbacks.onPosition.mock.invocationCallOrder[0]!);
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -78,27 +76,29 @@ describe("supplemental callback delivery", () => {
     expect(logger.warn).toHaveBeenCalledTimes(3);
   });
 
-  it("awaits each sink rather than introducing concurrent callback delivery", async () => {
+  it("allows independent sinks to complete while the market sink is pending", async () => {
     const { callbacks, internal } = fixture();
     let reject!: (reason: Error) => void;
     callbacks.onMarket.mockReturnValue(new Promise<void>((_resolve, fail) => { reject = fail; }));
     const pending = internal.refreshSupplemental();
     await vi.waitFor(() => expect(callbacks.onMarket).toHaveBeenCalledOnce());
-    expect(callbacks.onAccount).not.toHaveBeenCalled();
+    expect(callbacks.onAccount).toHaveBeenCalledOnce();
     reject(new Error("market failed"));
     await pending;
     expect(callbacks.onAccount).toHaveBeenCalledOnce();
     expect(callbacks.onPosition).toHaveBeenCalledOnce();
   });
 
-  it("retains the existing upstream failure path and last snapshot", async () => {
+  it("retains a failed market snapshot while delivering private results", async () => {
     const { client, callbacks, internal, logger } = fixture();
     client.getMarkPrice.mockRejectedValue(new Error("upstream failed"));
     const before = internal.snapshot;
     await internal.refreshSupplemental();
     expect(internal.snapshot).toBe(before);
-    for (const callback of Object.values(callbacks)) expect(callback).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.any(Object), "Failed to refresh supplemental market data");
+    expect(callbacks.onMarket).not.toHaveBeenCalled();
+    expect(callbacks.onAccount).toHaveBeenCalledOnce();
+    expect(callbacks.onPosition).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledWith({component: "market"}, "Supplemental upstream read failed");
   });
 
   it("does not fetch or deliver account state in paper mode", async () => {
