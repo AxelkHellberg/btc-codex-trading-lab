@@ -108,6 +108,15 @@ Useful commands:
 - `./scripts/run-paper.sh`
 - `./scripts/run-live.sh`
 
+### Signed request receive window
+
+`BINANCE_RECV_WINDOW_MS` sets the receive window included in every signed Binance
+REST GET, POST and DELETE (integer milliseconds, 1–60000; default 5000). The default
+preserves Binance's normal validity window. Increase it only for a measured latency
+need; a larger window also keeps a signed request valid for longer. This setting
+does not synchronize the host clock or retry orders. Public endpoints and unsigned
+listen-key requests do not include it. See [Binance timing security](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info#timing-security).
+
 ## Operations
 
 macOS background run:

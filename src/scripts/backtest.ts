@@ -142,7 +142,8 @@ const main = async (): Promise<void> => {
     config.binance.wsBaseUrl,
     "",
     "",
-    logger
+    logger,
+    config.binance.recvWindowMs
   );
   const broker = new PaperBroker({
     ...config,

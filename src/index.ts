@@ -26,7 +26,8 @@ const main = async (): Promise<void> => {
     config.binance.wsBaseUrl,
     config.binance.apiKey,
     config.binance.apiSecret,
-    logger
+    logger,
+    config.binance.recvWindowMs
   );
   const broker: Broker =
     config.tradingMode === "live"
