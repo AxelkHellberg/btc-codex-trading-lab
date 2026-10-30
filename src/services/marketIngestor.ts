@@ -61,6 +61,8 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private userRefreshSequence = 0;
+  private readonly deliveredUserRefresh = new Map<string, number>();
 
   public constructor(
     private readonly config: AppConfig,
@@ -129,17 +131,38 @@ export class MarketIngestor {
   }
 
   private async handleUserStreamEvent(event: unknown): Promise<void> {
+    if (event === null || typeof event !== "object") {
+      return;
+    }
     const typed = event as { e?: string };
-    if (!typed.e || (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE")) {
+    if (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE") {
       return;
     }
 
-    const [account, position] = await Promise.all([
-      this.client.getBalanceState(),
-      this.client.getPositionState(this.config.symbol)
+    const sequence = ++this.userRefreshSequence;
+    const reconcile = async <T>(
+      component: "account" | "position",
+      read: () => Promise<T>,
+      deliver: (value: T) => Promise<void> | void
+    ): Promise<void> => {
+      let stage = "read";
+      try {
+        const value = await read();
+        if (sequence < (this.deliveredUserRefresh.get(component) ?? 0)) {
+          return;
+        }
+        this.deliveredUserRefresh.set(component, sequence);
+        stage = "callback";
+        await deliver(value);
+      } catch {
+        // Upstream errors may contain signed URLs or account data.
+        this.logger.warn({ component, eventType: typed.e, stage }, "Failed to reconcile user stream component");
+      }
+    };
+    await Promise.all([
+      reconcile("account", () => this.client.getBalanceState(), (account) => this.callbacks.onAccount(account)),
+      reconcile("position", () => this.client.getPositionState(this.config.symbol), (position) => this.callbacks.onPosition(position))
     ]);
-    await this.callbacks.onAccount(account);
-    await this.callbacks.onPosition(position);
   }
 
   private async handleMarketMessage(raw: string): Promise<void> {
