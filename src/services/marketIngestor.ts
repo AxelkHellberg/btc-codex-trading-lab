@@ -59,7 +59,7 @@ export class MarketIngestor {
   private listenKey: string | null = null;
   private snapshot: MarketSnapshot | null = null;
   private candleHistory: MinuteBar[] = [];
-  private lastOpenInterest = 0;
+  private openInterestBaseline: { value: number; observedAt: number } | null = null;
   private filtersLoaded = false;
 
   public constructor(
@@ -74,7 +74,7 @@ export class MarketIngestor {
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
-    this.lastOpenInterest = this.snapshot.openInterest;
+    this.openInterestBaseline = { value: this.snapshot.openInterest, observedAt: this.snapshot.timestamp };
     this.filtersLoaded = true;
     await this.callbacks.onMarket(this.snapshot);
     await this.refreshSupplemental();
@@ -200,9 +200,9 @@ export class MarketIngestor {
     }
 
     try {
-      const [mark, openInterest, ratio, account, position] = await Promise.all([
+      const [mark, openInterestObservation, ratio, account, position] = await Promise.all([
         this.client.getMarkPrice(this.config.symbol),
-        this.client.getOpenInterest(this.config.symbol),
+        this.client.getOpenInterest(this.config.symbol).then((value) => ({ value, observedAt: Date.now() })),
         this.client.getTopTraderLongShortRatio(this.config.symbol),
         this.config.tradingMode === "live"
           ? this.client.getBalanceState()
@@ -212,6 +212,7 @@ export class MarketIngestor {
           : Promise.resolve(null)
       ]);
 
+      const { value: openInterest, observedAt } = openInterestObservation;
       const next: MarketSnapshot = {
         ...this.snapshot,
         markPrice: mark.markPrice,
@@ -219,8 +220,7 @@ export class MarketIngestor {
         fundingRate: mark.fundingRate,
         nextFundingTime: mark.nextFundingTime,
         openInterest,
-        openInterestChangePct1m:
-          this.lastOpenInterest > 0 ? ((openInterest - this.lastOpenInterest) / this.lastOpenInterest) * 100 : 0,
+        openInterestChangePct1m: this.observeOpenInterest(openInterest, observedAt),
         topTraderLongShortRatio: ratio,
         timestamp: Date.now()
       };
@@ -231,7 +231,6 @@ export class MarketIngestor {
         Math.max(next.lastPrice, next.markPrice),
         Math.min(next.lastPrice, next.markPrice)
       );
-      this.lastOpenInterest = openInterest;
       await this.callbacks.onMarket(this.snapshot);
       if (account) {
         await this.callbacks.onAccount(account);
@@ -242,6 +241,24 @@ export class MarketIngestor {
     } catch (error) {
       this.logger.warn({ error, filtersLoaded: this.filtersLoaded }, "Failed to refresh supplemental market data");
     }
+  }
+
+  private observeOpenInterest(value: number, observedAt: number): number {
+    const previous = this.openInterestBaseline;
+    if (!Number.isFinite(value) || value <= 0) {
+      this.openInterestBaseline = null;
+      return 0;
+    }
+    const elapsed = previous ? observedAt - previous.observedAt : 0;
+    // Require a full minute, allowing at most five seconds of timer/network
+    // delay. Longer gaps are not one-minute observations and must re-prime.
+    if (previous && elapsed >= 0 && elapsed < 60_000) {
+      return 0;
+    }
+    this.openInterestBaseline = { value, observedAt };
+    return previous && previous.value > 0 && elapsed >= 60_000 && elapsed <= 65_000
+      ? ((value - previous.value) / previous.value) * 100
+      : 0;
   }
 
   private applyDerivedMetrics(
