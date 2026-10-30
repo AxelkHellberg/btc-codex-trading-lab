@@ -63,8 +63,13 @@ export class BinanceFuturesClient {
     private readonly wsBaseUrl: string,
     private readonly apiKey: string,
     private readonly apiSecret: string,
-    private readonly logger: Logger
-  ) {}
+    private readonly logger: Logger,
+    private readonly recvWindowMs = 5000
+  ) {
+    if (!Number.isInteger(recvWindowMs) || recvWindowMs <= 0 || recvWindowMs > 60_000) {
+      throw new Error("Binance receive window must be an integer between 1 and 60000 milliseconds");
+    }
+  }
 
   public getCombinedMarketStreamUrl(symbol: string): string {
     const streamSymbol = symbol.toLowerCase();
@@ -315,13 +320,21 @@ export class BinanceFuturesClient {
     return fetchJson<T>(`${this.baseUrl}${path}${queryString ? `?${queryString}` : ""}`);
   }
 
-  private async signedGet<T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> {
+  private signedParams(params?: Record<string, string | number | boolean>): URLSearchParams {
     const query = new URLSearchParams();
-    query.set("timestamp", String(Date.now()));
     for (const [key, value] of Object.entries(params ?? {})) {
-      query.set(key, String(value));
+      if (key !== "signature") {
+        query.set(key, String(value));
+      }
     }
+    query.set("timestamp", String(Date.now()));
+    query.set("recvWindow", String(this.recvWindowMs));
     query.set("signature", this.sign(query));
+    return query;
+  }
+
+  private async signedGet<T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> {
+    const query = this.signedParams(params);
     return fetchJson<T>(`${this.baseUrl}${path}?${query.toString()}`, {
       headers: {
         "X-MBX-APIKEY": this.apiKey
@@ -330,12 +343,7 @@ export class BinanceFuturesClient {
   }
 
   private async signedPost(path: string, params?: Record<string, string | number | boolean>): Promise<unknown> {
-    const body = new URLSearchParams();
-    body.set("timestamp", String(Date.now()));
-    for (const [key, value] of Object.entries(params ?? {})) {
-      body.set(key, String(value));
-    }
-    body.set("signature", this.sign(body));
+    const body = this.signedParams(params);
     return fetchJson(`${this.baseUrl}${path}`, {
       method: "POST",
       headers: {
@@ -347,12 +355,7 @@ export class BinanceFuturesClient {
   }
 
   private async signedDelete(path: string, params?: Record<string, string | number | boolean>): Promise<unknown> {
-    const body = new URLSearchParams();
-    body.set("timestamp", String(Date.now()));
-    for (const [key, value] of Object.entries(params ?? {})) {
-      body.set(key, String(value));
-    }
-    body.set("signature", this.sign(body));
+    const body = this.signedParams(params);
     return fetchJson(`${this.baseUrl}${path}?${body.toString()}`, {
       method: "DELETE",
       headers: {

@@ -18,6 +18,7 @@ const envSchema = z.object({
   SYMBOL: z.string().default("BTCUSDT"),
   BINANCE_FUTURES_BASE_URL: z.string().url().default("https://fapi.binance.com"),
   BINANCE_FUTURES_WS_URL: z.string().url().default("wss://fstream.binance.com/stream"),
+  BINANCE_RECV_WINDOW_MS: z.coerce.number().finite().int().positive().max(60_000).default(5000),
   BINANCE_API_KEY: z.string().default(""),
   BINANCE_API_SECRET: z.string().default(""),
   POSTGRES_URL: z.string().default("postgres://postgres:postgres@localhost:5432/trader"),
@@ -56,6 +57,7 @@ export interface AppConfig {
   binance: {
     restBaseUrl: string;
     wsBaseUrl: string;
+    recvWindowMs?: number;
     apiKey: string;
     apiSecret: string;
   };
@@ -90,6 +92,7 @@ export const config: AppConfig = {
   binance: {
     restBaseUrl: parsed.BINANCE_FUTURES_BASE_URL,
     wsBaseUrl: parsed.BINANCE_FUTURES_WS_URL,
+    recvWindowMs: parsed.BINANCE_RECV_WINDOW_MS,
     apiKey: parsed.BINANCE_API_KEY,
     apiSecret: parsed.BINANCE_API_SECRET
   },
