@@ -63,6 +63,7 @@ export class MarketIngestor {
   private snapshot: MarketSnapshot | null = null;
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
+  private lastPriceCandleOpenTime: number | null = null;
   private filtersLoaded = false;
 
   public constructor(
@@ -76,6 +77,7 @@ export class MarketIngestor {
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     const candles = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    this.lastPriceCandleOpenTime = Math.floor(this.snapshot.timestamp / 60_000) * 60_000;
     const now = Date.now();
     this.candleHistory = candles.filter((bar) => bar.closeTime < now);
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
@@ -180,6 +182,7 @@ export class MarketIngestor {
       if (tail && data.k.t < tail.openTime) {
         return;
       }
+      this.lastPriceCandleOpenTime = data.k.t;
       const close = Number(data.k.c);
       next.lastPrice = close;
       next.volume1m = Number(data.k.v);
@@ -272,10 +275,14 @@ export class MarketIngestor {
     currentHigh: number,
     currentLow: number
   ): MarketSnapshot {
-    const closes = this.candleHistory.map((bar) => bar.close);
+    // The traded candle may already be retained after its close event. It is
+    // the current observation, never its own lookback or EMA/volume baseline.
+    const currentOpenTime = this.lastPriceCandleOpenTime ?? Math.floor(snapshot.timestamp / 60_000) * 60_000;
+    const priorBars = this.candleHistory.filter((bar) => bar.openTime < currentOpenTime);
+    const closes = priorBars.map((bar) => bar.close);
     const highs = this.candleHistory.map((bar) => bar.high);
     const lows = this.candleHistory.map((bar) => bar.low);
-    const volumes = this.candleHistory.map((bar) => bar.volume);
+    const volumes = priorBars.map((bar) => bar.volume);
 
     const ref = (lookback: number): number => {
       const index = Math.max(0, closes.length - lookback);
