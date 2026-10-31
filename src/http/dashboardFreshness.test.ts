@@ -33,7 +33,7 @@ async function dashboard(fetchMock: ReturnType<typeof vi.fn>) {
   });
   runInContext(html.match(/<script>([\s\S]*?)<\/script>/)![1]!, context);
   await setImmediate();
-  return { node, poll: async () => { interval!(); await setImmediate(); }, html };
+  return { context, node, poll: async () => { interval!(); await setImmediate(); }, html };
 }
 
 const payload = () => ({
@@ -84,5 +84,51 @@ describe("dashboard freshness", () => {
     expect(page.html).toContain('role="status" aria-live="polite"');
     expect(page.html).toContain('.status-pill[data-state="stale"] .dot');
     expect(page.html).toContain('background: var(--amber)');
+  });
+});
+
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+
+describe("dashboard single-flight polling", () => {
+  it("shares startup work across timer ticks and explicit refresh calls", async () => {
+    const response = deferred<ReturnType<typeof success>>();
+    const fetchMock = vi.fn().mockReturnValueOnce(response.promise).mockResolvedValue(success());
+    const page = await dashboard(fetchMock);
+    await page.poll(); await page.poll();
+    const first = runInContext("refresh()", page.context);
+    const second = runInContext("refresh()", page.context);
+    expect(first).toBe(second);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    response.resolve(success()); await first;
+    expect(page.node("dashboardStatus").dataset.state).toBe("live");
+    await page.poll(); expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("holds the gate through JSON parsing and rendering", async () => {
+    const body = deferred<ReturnType<typeof payload>>();
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: () => body.promise })
+      .mockResolvedValue({ ok: true, json: async () => ({ ...payload(), account: { ...payload().account, equity: 20_000 } }) });
+    const page = await dashboard(fetchMock);
+    await page.poll(); await page.poll();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    body.resolve(payload()); await setImmediate();
+    expect(page.node("equity").textContent).toBe("$10,000.00");
+    await page.poll(); expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(page.node("equity").textContent).toBe("$20,000.00");
+  });
+  it("releases the gate after failure so polling can recover", async () => {
+    const response = deferred<ReturnType<typeof success>>();
+    const fetchMock = vi.fn().mockReturnValueOnce(response.promise).mockResolvedValue(success());
+    const page = await dashboard(fetchMock);
+    await page.poll(); expect(fetchMock).toHaveBeenCalledTimes(1);
+    response.reject(new Error("offline")); await setImmediate();
+    expect(page.node("dashboardStatus").dataset.state).toBe("error");
+    await page.poll(); expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(page.node("dashboardStatus").dataset.state).toBe("live");
   });
 });

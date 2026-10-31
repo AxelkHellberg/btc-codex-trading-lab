@@ -523,18 +523,26 @@ export async function createHttpServer(
         document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
       }
 
-      async function refresh() {
-        try {
-          await renderDashboard();
-          lastRenderedAt = new Date().toLocaleTimeString();
-          setFreshness("live", "Live · " + lastRenderedAt);
-        } catch (error) {
-          setFreshness(
-            lastRenderedAt === null ? "error" : "stale",
-            lastRenderedAt === null ? "Dashboard unavailable" : "Stale · last update " + lastRenderedAt
-          );
-          console.error(error);
-        }
+      let refreshInFlight = null;
+
+      function refresh() {
+        if (refreshInFlight !== null) return refreshInFlight;
+        refreshInFlight = (async () => {
+          try {
+            await renderDashboard();
+            lastRenderedAt = new Date().toLocaleTimeString();
+            setFreshness("live", "Live · " + lastRenderedAt);
+          } catch (error) {
+            setFreshness(
+              lastRenderedAt === null ? "error" : "stale",
+              lastRenderedAt === null ? "Dashboard unavailable" : "Stale · last update " + lastRenderedAt
+            );
+            console.error(error);
+          } finally {
+            refreshInFlight = null;
+          }
+        })();
+        return refreshInFlight;
       }
 
       document.getElementById("triggerBtn").addEventListener("click", async () => {
