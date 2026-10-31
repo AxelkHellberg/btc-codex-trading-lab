@@ -110,6 +110,22 @@ Useful commands:
 
 ## Operations
 
+### Redis lock regression checks
+
+The ownership contract has an opt-in integration suite using the actual Redis
+Lua engine and independent clients. Start a disposable local Redis, then run:
+
+```bash
+docker run --rm -d --name trader-lock-test -p 127.0.0.1:16379:6379 redis:7.4-alpine redis-server --save '' --appendonly no
+REDIS_LOCK_TEST_URL=redis://127.0.0.1:16379 npm test -- src/infra/store/redisLock.integration.test.ts
+docker stop trader-lock-test
+```
+
+The suite uses unique keys, rejects non-loopback URLs, and cleans up its keys and
+connections after failures. Without `REDIS_LOCK_TEST_URL`, `npm test` skips these
+integration cases. Do not point it at application Redis. CI does not provision
+Redis, so the integration cases must be run explicitly before lock changes.
+
 Runtime Redis operations have a five-second total budget, including readiness,
 command replies, and QUIT during shutdown. A failed operation disconnects the
 client and rejects later work until the process is restarted. Commands are not
