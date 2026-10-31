@@ -61,6 +61,7 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private markGeneration = 0;
   private supplementalPending: Promise<void> | null = null;
   private supplementalGeneration = 0;
   private stopped = false;
@@ -163,6 +164,7 @@ export class MarketIngestor {
     const data = payload.data;
 
     if ("p" in data && "i" in data && "r" in data) {
+      this.markGeneration += 1;
       next.markPrice = Number(data.p);
       next.indexPrice = Number(data.i);
       next.lastPrice = Number(data.p);
@@ -222,6 +224,9 @@ export class MarketIngestor {
   }
 
   private async readSupplemental(generation: number): Promise<void> {
+    // A REST mark may wait behind other public responses. Do not let that
+    // buffered result replace a WebSocket mark accepted since this read began.
+    const markGeneration = this.markGeneration;
     const current = (): boolean => !this.stopped && generation === this.supplementalGeneration;
     const component = async <T,>(name: string, read: () => Promise<T>, deliver: (value: T) => Promise<void>): Promise<void> => {
       let value: T;
@@ -249,10 +254,12 @@ export class MarketIngestor {
     }, async ([mark, openInterest, ratio]) => {
       const next: MarketSnapshot = {
         ...this.snapshot!,
-        markPrice: mark.markPrice,
-        indexPrice: mark.indexPrice,
-        fundingRate: mark.fundingRate,
-        nextFundingTime: mark.nextFundingTime,
+        ...(markGeneration === this.markGeneration ? {
+          markPrice: mark.markPrice,
+          indexPrice: mark.indexPrice,
+          fundingRate: mark.fundingRate,
+          nextFundingTime: mark.nextFundingTime
+        } : {}),
         openInterest,
         openInterestChangePct1m:
           this.lastOpenInterest > 0 ? ((openInterest - this.lastOpenInterest) / this.lastOpenInterest) * 100 : 0,
