@@ -132,6 +132,22 @@ Linux VM template:
 
 ## CI
 
+The Postgres persistence contract suite is opt-in and needs a disposable local
+PostgreSQL database. For example:
+
+```sh
+docker run --rm -d --name persistence-contract -e POSTGRES_PASSWORD=contract -e POSTGRES_DB=contract_test -p 127.0.0.1:55432:5432 postgres:17-alpine
+POSTGRES_TEST_URL=postgres://postgres:contract@127.0.0.1:55432/contract_test npm test -- src/infra/store/postgresStateStore.integration.test.ts
+docker stop persistence-contract
+```
+
+Wait for PostgreSQL to be ready before running the test. It creates and drops
+only its own randomly named schema, checks schema initialization, JSONB and
+timestamp round trips, decision/trade upserts, and heartbeat uniqueness. Remote
+database hosts are rejected. With no `POSTGRES_TEST_URL`, the suite is skipped
+and the ordinary unit tests run without a database. Do not point it at a
+production database.
+
 GitHub Actions runs:
 
 - `npm ci`
