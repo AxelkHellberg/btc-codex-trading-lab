@@ -10,6 +10,7 @@ import { CodexDecisionWorker } from "./services/codexDecisionWorker.js";
 import { EventDetector } from "./services/eventDetector.js";
 import { ExecutionEngine } from "./services/executionEngine.js";
 import { MarketIngestor } from "./services/marketIngestor.js";
+import { assertLiveAccountMode } from "./services/liveAccountPreflight.js";
 import { NewsIngestor } from "./services/newsIngestor.js";
 import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
@@ -17,10 +18,6 @@ import { RuntimeState } from "./services/runtimeState.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
 
 const main = async (): Promise<void> => {
-  const runtime = new RuntimeState(config.paperStartingBalance);
-  const store = new PostgresStateStore(config.postgresUrl, logger);
-  const hotStore = new RedisHotStore(config.redisUrl, logger);
-  const notifier = new TelegramNotifier(config.telegram.botToken, config.telegram.chatId, logger);
   const binance = new BinanceFuturesClient(
     config.binance.restBaseUrl,
     config.binance.wsBaseUrl,
@@ -28,6 +25,11 @@ const main = async (): Promise<void> => {
     config.binance.apiSecret,
     logger
   );
+  await assertLiveAccountMode(config.tradingMode, binance);
+  const runtime = new RuntimeState(config.paperStartingBalance);
+  const store = new PostgresStateStore(config.postgresUrl, logger);
+  const hotStore = new RedisHotStore(config.redisUrl, logger);
+  const notifier = new TelegramNotifier(config.telegram.botToken, config.telegram.chatId, logger);
   const broker: Broker =
     config.tradingMode === "live"
       ? new LiveBroker(config, binance, logger)

@@ -140,6 +140,13 @@ GitHub Actions runs:
 
 ## Important caveats
 
+Live mode requires a Binance USD-M account in **one-way position mode**. Startup
+checks the signed position-mode endpoint before creating execution services,
+opening streams, or accepting manual triggers. Hedge mode is unsupported even
+with no open positions; a failed or malformed mode query also stops startup.
+The application never changes your account's position mode. Review that setting
+manually before restarting; paper mode does not make this signed request.
+
 - This is not financial advice
 - This is not high-frequency trading infrastructure
 - The live execution path is more sensitive than the paper path and should be treated carefully

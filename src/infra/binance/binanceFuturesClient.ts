@@ -76,6 +76,15 @@ export class BinanceFuturesClient {
     return `${this.wsBaseUrl}?streams=${streams}`;
   }
 
+  public async getPositionMode(): Promise<boolean> {
+    const response = await this.signedGet<unknown>("/fapi/v1/positionSide/dual");
+    if (!response || typeof response !== "object" ||
+        !("dualSidePosition" in response) || typeof response.dualSidePosition !== "boolean") {
+      throw new Error("Binance position-mode response must contain a boolean dualSidePosition");
+    }
+    return response.dualSidePosition;
+  }
+
   public async getSymbolFilters(symbol: string): Promise<SymbolFilters | undefined> {
     const response = await this.publicGet<ExchangeInformationResponse>("/fapi/v1/exchangeInfo");
     const found = response.symbols.find((entry) => entry.symbol === symbol);
