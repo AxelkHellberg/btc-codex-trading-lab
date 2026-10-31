@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { loadBacktestFilters } from "../lib/backtestFilters.js";
 import type { DecisionContext, StrategySignal } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 import { logger } from "../logger.js";
@@ -153,8 +154,10 @@ const main = async (): Promise<void> => {
   const riskEngine = new RiskEngine(config);
   const endTime = Date.now();
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
+  const { source: filterSource, filters } = await loadBacktestFilters(
+    config.symbol, client, process.env.BACKTEST_FILTERS_FILE
+  );
   const candles = await fetchHistoricalKlines(client, config.symbol, startTime, endTime);
-  const filters = await client.getSymbolFilters(config.symbol);
   let wins = 0;
   let losses = 0;
   let entries = 0;
@@ -315,6 +318,8 @@ const main = async (): Promise<void> => {
     {
       symbol: config.symbol,
       days,
+      filterSource,
+      filters,
       entries,
       exits,
       wins,
