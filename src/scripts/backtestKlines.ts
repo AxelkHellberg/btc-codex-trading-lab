@@ -10,6 +10,42 @@ export type Candle = {
 
 const endpoint = "/fapi/v1/klines";
 
+// One deadline covers both response headers and the complete JSON body.
+const fetchPage = async (url: string, symbol: string, cursor: number, endTime: number): Promise<{ payload: unknown; context: string }> => {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Binance historical klines ${endpoint} ${symbol} startTime=${cursor} endTime=${endTime} timed out after 10000ms`));
+      controller.abort();
+    }, 10_000);
+  });
+  try {
+    return await Promise.race([
+      (async () => {
+        let response: Response;
+        try {
+          response = await fetch(url, { signal: controller.signal });
+        } catch {
+          throw new Error(`Binance historical klines request to ${endpoint} failed before an HTTP response`);
+        }
+        const context = `Binance historical klines response from ${endpoint} (HTTP ${response.status})`;
+        if (!response.ok) {
+          throw new Error(`${context}: request failed`);
+        }
+        try {
+          return { payload: await response.json(), context };
+        } catch {
+          throw new Error(`${context}: invalid JSON`);
+        }
+      })(),
+      deadline
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const parseCandle = (row: unknown, index: number, context: string): Candle => {
   const invalid = (reason: string): never => {
     throw new Error(`${context}: invalid row ${index + 1} (${reason})`);
@@ -70,23 +106,7 @@ export const fetchHistoricalKlines = async (
 
   while (cursor < endTime) {
     const url = `${restBaseUrl}${endpoint}?symbol=${encodeURIComponent(symbol)}&interval=1m&limit=1500&startTime=${cursor}&endTime=${endTime}`;
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch {
-      throw new Error(`Binance historical klines request to ${endpoint} failed before an HTTP response`);
-    }
-    const context = `Binance historical klines response from ${endpoint} (HTTP ${response.status})`;
-    if (!response.ok) {
-      throw new Error(`${context}: request failed`);
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error(`${context}: invalid JSON`);
-    }
+    const { payload, context } = await fetchPage(url, symbol, cursor, endTime);
     if (!Array.isArray(payload)) {
       throw new Error(`${context}: expected a kline array`);
     }
