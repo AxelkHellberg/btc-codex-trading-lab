@@ -1,0 +1,9 @@
+{
+  "symbol": "BTCUSDT",
+  "filters": {
+    "tickSize": 0.1,
+    "stepSize": 0.001,
+    "minQty": 0.001,
+    "minNotional": 5
+  }
+}

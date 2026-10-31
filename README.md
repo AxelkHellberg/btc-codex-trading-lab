@@ -138,6 +138,22 @@ GitHub Actions runs:
 - `npm run build`
 - `npm test`
 
+## Reproducible backtest exchange filters
+
+Set `BACKTEST_FILTERS_FILE=./examples/backtest-filters.json npm run backtest` to
+load an explicit `{ "symbol": "BTCUSDT", "filters": { "tickSize": 0.1,
+"stepSize": 0.001, "minQty": 0.001, "minNotional": 5 } }` JSON snapshot. The
+example is an illustrative fixture, not a claim about current or historical
+exchange rules. Use a snapshot appropriate to your experiment and keep it with
+the candle data and other run inputs. Invalid snapshots or a mismatched symbol
+stop the replay before candle downloads; they never fall back to live metadata.
+
+With a snapshot, backtesting does not query `/exchangeInfo`. Without one it uses
+current exchange rules, which can change over time. The completion log includes
+`filterSource` and the exact `filters` used in either case. Historical candles
+still require network access; identical filters alone do not fix the moving
+replay time window or guarantee identical results from different candles.
+
 ## Important caveats
 
 - This is not financial advice
