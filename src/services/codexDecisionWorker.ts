@@ -42,28 +42,27 @@ If you choose LONG or SHORT, prefer setups with visible momentum, directional tr
 `;
 
 export class CodexDecisionWorker {
-  private readonly thread: ReturnType<Codex["startThread"]>;
+  private thread: ReturnType<Codex["startThread"]> | undefined;
 
   public constructor(
     private readonly config: AppConfig,
     private readonly logger: Logger
-  ) {
-    this.thread = new Codex().startThread({
-      model: this.config.codex.model,
-      sandboxMode: "read-only",
-      approvalPolicy: "never",
-      skipGitRepoCheck: true,
-      workingDirectory: process.cwd(),
-      modelReasoningEffort: "high",
-      networkAccessEnabled: true,
-      webSearchMode: "live"
-    });
-  }
+  ) {}
 
   public async decide(context: DecisionContext): Promise<StrategySignal> {
     const prompt = buildPrompt(context);
 
     try {
+      this.thread ??= new Codex().startThread({
+        model: this.config.codex.model,
+        sandboxMode: "read-only",
+        approvalPolicy: "never",
+        skipGitRepoCheck: true,
+        workingDirectory: process.cwd(),
+        modelReasoningEffort: "high",
+        networkAccessEnabled: true,
+        webSearchMode: "live"
+      });
       const result = await this.thread.run(prompt, {
         outputSchema: strategySignalJsonSchema,
         signal: AbortSignal.timeout(this.config.codex.timeoutMs)
