@@ -155,3 +155,15 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+## WebSocket endpoint routing
+
+`BINANCE_FUTURES_WS_URL` is the combined-market endpoint and also selects the
+authenticated user-stream host. For example, `wss://proxy.example/gateway/stream`
+opens private streams at `wss://proxy.example/gateway/ws/<listenKey>`. The final
+`/stream` (or `/ws`) segment is replaced, while earlier path segments and the port
+are retained; other configured paths are treated as prefixes for `/ws`.
+Combined-market query parameters are retained with one current `streams` value.
+Private stream URLs discard query parameters and fragments and encode the listen
+key as one path segment. Proxies that require private query parameters must expose
+the private route without them.
