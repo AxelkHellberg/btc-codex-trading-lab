@@ -73,7 +73,11 @@ export class BinanceFuturesClient {
       `${streamSymbol}@bookTicker`,
       `${streamSymbol}@kline_1m`
     ].join("/");
-    return `${this.wsBaseUrl}?streams=${streams}`;
+    const url = new URL(this.wsBaseUrl);
+    url.searchParams.delete("streams");
+    url.search += `${url.search ? "&" : "?"}streams=${streams}`;
+    url.hash = "";
+    return url.toString();
   }
 
   public async getSymbolFilters(symbol: string): Promise<SymbolFilters | undefined> {
@@ -250,7 +254,12 @@ export class BinanceFuturesClient {
   }
 
   public connectUserStream(listenKey: string, onMessage: (event: unknown) => void): WebSocket {
-    const socket = new WebSocket(`wss://fstream.binance.com/ws/${listenKey}`);
+    const url = new URL(this.wsBaseUrl);
+    const prefix = url.pathname.replace(/\/+$/, "").replace(/\/(stream|ws)$/, "");
+    url.pathname = `${prefix}/ws/${encodeURIComponent(listenKey)}`;
+    url.search = "";
+    url.hash = "";
+    const socket = new WebSocket(url.toString());
     socket.on("message", (payload) => {
       try {
         onMessage(JSON.parse(payload.toString()) as unknown);
