@@ -3,6 +3,7 @@ import type { DecisionContext, ExecutionPlan, RiskEvaluation, StrategySignal } f
 import { normalizeQuantity, riskRewardRatio } from "../lib/math.js";
 import type { PlanningResult } from "./strategyPlanner.js";
 import { marketEntryQuantityErrors } from "../lib/marketQuantity.js";
+import { exchangeFilterErrors } from "../lib/symbolFilters.js";
 
 export class RiskEngine {
   public constructor(private readonly config: AppConfig) {}
@@ -85,6 +86,7 @@ export class RiskEngine {
     executionPlan: ExecutionPlan,
     reasons: string[]
   ): RiskEvaluation {
+    reasons.push(...exchangeFilterErrors(context.market_snapshot.filters));
     if (context.position_state.side !== "flat") {
       reasons.push("max one open position allowed");
     }
