@@ -8,6 +8,7 @@ import type {
 } from "../domain/types.js";
 import { clamp, normalizeQuantity, roundToTick } from "../lib/math.js";
 import { marketEntryQuantityErrors } from "../lib/marketQuantity.js";
+import { exchangeFilterErrors } from "../lib/symbolFilters.js";
 
 export interface PlanningResult {
   normalizedSignal: StrategySignal;
@@ -43,7 +44,8 @@ export class StrategyPlanner {
       };
     }
 
-    const reasons: string[] = [];
+    const reasons = exchangeFilterErrors(context.market_snapshot.filters);
+    if (reasons.length > 0) return { normalizedSignal, reasons };
     const alignment = this.assessAlignment(context, normalizedSignal);
     reasons.push(...alignment.reasons);
 

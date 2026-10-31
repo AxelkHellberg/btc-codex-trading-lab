@@ -156,3 +156,12 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Exchange metadata for entries
+
+New entries require finite, positive price tick, lot step, and minimum quantity
+rules. Missing symbols or required rules fail initialization rather than using
+guessed defaults. Optional maximum quantity, market lot, and minimum notional
+rules are validated when present. The planner and risk engine also enforce this
+contract for callers that bypass ingestion; offline and backtest contexts must
+supply explicit rules. CLOSE/REDUCE retain their existing exit policy.

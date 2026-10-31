@@ -10,6 +10,7 @@ import type {
   SymbolFilters
 } from "../../domain/types.js";
 import { fetchJson, HttpError } from "../../lib/http.js";
+import { exchangeFilterErrors } from "../../lib/symbolFilters.js";
 
 type BalanceResponse = Array<{
   asset: string;
@@ -30,13 +31,6 @@ type PositionRiskResponse = Array<{
   leverage?: string;
   updateTime: number;
 }>;
-
-type ExchangeInformationResponse = {
-  symbols: Array<{
-    symbol: string;
-    filters: Array<Record<string, string>>;
-  }>;
-};
 
 type KlineResponse = Array<
   [
@@ -76,31 +70,46 @@ export class BinanceFuturesClient {
     return `${this.wsBaseUrl}?streams=${streams}`;
   }
 
-  public async getSymbolFilters(symbol: string): Promise<SymbolFilters | undefined> {
-    const response = await this.publicGet<ExchangeInformationResponse>("/fapi/v1/exchangeInfo");
-    const found = response.symbols.find((entry) => entry.symbol === symbol);
-
-    if (!found) {
-      return undefined;
+  public async getSymbolFilters(symbol: string): Promise<SymbolFilters> {
+    const invalid = (detail: string): never => { throw new Error(`Invalid exchange filters for ${symbol}: ${detail}`); };
+    const response = await this.publicGet<unknown>("/fapi/v1/exchangeInfo");
+    if (!response || typeof response !== "object" || !("symbols" in response) || !Array.isArray(response.symbols)) {
+      return invalid("symbols must be an array");
     }
-
-    const priceFilter = found.filters.find((filter) => filter.filterType === "PRICE_FILTER");
-    const lotSize = found.filters.find((filter) => filter.filterType === "LOT_SIZE");
-    const marketLotSize = found.filters.find((filter) => filter.filterType === "MARKET_LOT_SIZE");
-    const minNotional = found.filters.find((filter) => filter.filterType === "MIN_NOTIONAL");
-
-    return {
-      tickSize: Number(priceFilter?.tickSize ?? "0.1"),
-      stepSize: Number(lotSize?.stepSize ?? "0.001"),
-      minQty: Number(lotSize?.minQty ?? "0.001"),
-      maxQty: lotSize?.maxQty === undefined ? undefined : Number(lotSize.maxQty),
-      marketLotSize: marketLotSize ? {
-        minQty: Number(marketLotSize.minQty),
-        maxQty: Number(marketLotSize.maxQty),
-        stepSize: Number(marketLotSize.stepSize)
-      } : undefined,
-      minNotional: minNotional ? Number(minNotional.notional ?? "0") : undefined
+    const matches = response.symbols.filter(entry => entry && typeof entry === "object" && entry.symbol === symbol);
+    if (matches.length !== 1) return invalid("expected exactly one matching symbol");
+    const raw: unknown = matches[0].filters;
+    if (!Array.isArray(raw)) return invalid("filters must be an array");
+    const rule = (type: string, required = false): Record<string, unknown> | undefined => {
+      const matches = raw.filter(value => value && typeof value === "object" && value.filterType === type);
+      if (matches.length > 1 || (required && matches.length !== 1)) return invalid(`${type} must occur exactly once`);
+      return matches[0];
     };
+    const decimal = (value: unknown, field: string): number => {
+      if (typeof value !== "string" || !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) return invalid(field);
+      const number = Number(value);
+      if (!Number.isFinite(number)) return invalid(field);
+      return number;
+    };
+    const price = rule("PRICE_FILTER", true)!;
+    const lot = rule("LOT_SIZE", true)!;
+    const market = rule("MARKET_LOT_SIZE");
+    const notional = rule("MIN_NOTIONAL");
+    const filters: SymbolFilters = {
+      tickSize: decimal(price.tickSize, "PRICE_FILTER.tickSize"),
+      stepSize: decimal(lot.stepSize, "LOT_SIZE.stepSize"),
+      minQty: decimal(lot.minQty, "LOT_SIZE.minQty"),
+      maxQty: lot.maxQty === undefined ? undefined : decimal(lot.maxQty, "LOT_SIZE.maxQty"),
+      marketLotSize: market ? {
+        minQty: decimal(market.minQty, "MARKET_LOT_SIZE.minQty"),
+        maxQty: decimal(market.maxQty, "MARKET_LOT_SIZE.maxQty"),
+        stepSize: decimal(market.stepSize, "MARKET_LOT_SIZE.stepSize")
+      } : undefined,
+      minNotional: notional ? decimal(notional.notional, "MIN_NOTIONAL.notional") : undefined
+    };
+    const errors = exchangeFilterErrors(filters);
+    if (errors.length) return invalid(errors.join("; "));
+    return filters;
   }
 
   public async getOpenInterest(symbol: string): Promise<number> {
