@@ -4,6 +4,7 @@ import { Redis } from "ioredis";
 import { Client } from "pg";
 
 import { config } from "../config.js";
+import { codexCliInvocation } from "../infra/codexCli.js";
 import { logger } from "../logger.js";
 
 const run = async (command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> =>
@@ -23,7 +24,12 @@ const run = async (command: string, args: string[]): Promise<{ code: number; std
 
 const main = async (): Promise<void> => {
   const pg = new Client({ connectionString: config.postgresUrl });
-  const redis = new Redis(config.redisUrl);
+  const redis = new Redis(config.redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null
+  });
+  redis.on("error", () => undefined);
   let postgres = "down";
   let redisState = "down";
   let app = "down";
@@ -40,6 +46,7 @@ const main = async (): Promise<void> => {
   }
 
   try {
+    await redis.connect();
     redisState = (await redis.ping()) === "PONG" ? "ok" : "down";
   } catch {
     redisState = "down";
@@ -72,7 +79,8 @@ const main = async (): Promise<void> => {
     telegram_present: Boolean(config.telegram.botToken && config.telegram.chatId)
   };
 
-  const codexStatus = await run("npx", ["@openai/codex", "login", "status"]);
+  const cli = codexCliInvocation(["login", "status"]);
+  const codexStatus = await run(cli.command, cli.args);
   logger.info(
     {
       checks,

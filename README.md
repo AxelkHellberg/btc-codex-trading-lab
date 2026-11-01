@@ -75,14 +75,16 @@ Runtime flow:
 
 1. Copy `.env.example` to `.env`
 2. Fill the required credentials
-3. Authenticate Codex:
-   - `npx @openai/codex login --device-auth`
-4. Install dependencies:
-   - `npm install`
+3. Install dependencies:
+   - `npm ci`
+4. Authenticate the installed Codex CLI:
+   - `./node_modules/.bin/codex login --device-auth`
 5. Start local infrastructure:
    - `docker compose up -d postgres redis`
 6. Start the app:
    - `npm run dev`
+
+The CLI fallback and doctor resolve the same directly declared `@openai/codex` package from this installation. They do not download a CLI with `npx` or use a global `codex` from `PATH`. The CLI is pinned to 0.118.0 to match the locked SDK dependency; update both deliberately when upgrading. `./node_modules/.bin/codex --version` is an offline install smoke check, not an authentication or model-execution check.
 
 ### Paper-first startup
 

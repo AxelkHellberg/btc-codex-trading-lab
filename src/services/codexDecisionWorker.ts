@@ -6,6 +6,8 @@ import path from "node:path";
 import { Codex } from "@openai/codex-sdk";
 import type { Logger } from "pino";
 
+import { codexCliInvocation } from "../infra/codexCli.js";
+
 import type { AppConfig } from "../config.js";
 import type { DecisionContext, StrategySignal } from "../domain/types.js";
 import { StrategySignalSchema, strategySignalJsonSchema } from "../domain/schemas.js";
@@ -103,30 +105,27 @@ export class CodexDecisionWorker {
 
     try {
       const finalResponse = await new Promise<string>((resolve, reject) => {
-        const child = spawn(
-          path.join(process.cwd(), "node_modules", ".bin", "codex"),
-          [
-            "exec",
-            "--experimental-json",
-            "--model",
-            this.config.codex.model,
-            "--sandbox",
-            "read-only",
-            "--skip-git-repo-check",
-            "--config",
-            'model_reasoning_effort="high"',
-            "--config",
-            'approval_policy="never"',
-            "--config",
-            'web_search="live"',
-            "--output-schema",
-            schemaPath
-          ],
-          {
-            cwd: process.cwd(),
-            env: process.env
-          }
-        );
+        const cli = codexCliInvocation([
+          "exec",
+          "--experimental-json",
+          "--model",
+          this.config.codex.model,
+          "--sandbox",
+          "read-only",
+          "--skip-git-repo-check",
+          "--config",
+          'model_reasoning_effort="high"',
+          "--config",
+          'approval_policy="never"',
+          "--config",
+          'web_search="live"',
+          "--output-schema",
+          schemaPath
+        ]);
+        const child = spawn(cli.command, cli.args, {
+          cwd: process.cwd(),
+          env: process.env
+        });
 
         let stdout = "";
         let stderr = "";

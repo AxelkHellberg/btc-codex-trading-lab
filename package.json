@@ -37,6 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@openai/codex": "0.118.0",
     "@openai/codex-sdk": "^0.118.0",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
