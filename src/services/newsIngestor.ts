@@ -15,6 +15,8 @@ const BTC_KEYWORDS = ["bitcoin", "btc", "etf", "fomc", "cpi", "inflation", "fed"
 export class NewsIngestor {
   private readonly seen = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
+  private startPromise: Promise<void> | null = null;
+  private lifecycleGeneration = 0;
   private pollPromise: Promise<void> | null = null;
 
   public constructor(
@@ -23,16 +25,36 @@ export class NewsIngestor {
     private readonly onEvents: (events: NewsEvent[]) => Promise<void> | void
   ) {}
 
-  public async start(): Promise<void> {
-    await this.runPoll();
-    this.timer = setInterval(() => {
-      void this.runPoll();
-    }, 60_000);
+  public start(): Promise<void> {
+    if (this.startPromise) {
+      return this.startPromise;
+    }
+
+    const generation = this.lifecycleGeneration;
+    const starting = this.runPoll().then(() => {
+      // stop() may have invalidated this startup while its initial poll awaited.
+      if (generation !== this.lifecycleGeneration) {
+        return;
+      }
+      this.timer = setInterval(() => {
+        void this.runPoll();
+      }, 60_000);
+    }).catch((error: unknown) => {
+      if (this.startPromise === starting) {
+        this.startPromise = null;
+      }
+      throw error;
+    });
+    this.startPromise = starting;
+    return starting;
   }
 
   public stop(): void {
+    this.lifecycleGeneration += 1;
+    this.startPromise = null;
     if (this.timer) {
       clearInterval(this.timer);
+      this.timer = null;
     }
   }
 
