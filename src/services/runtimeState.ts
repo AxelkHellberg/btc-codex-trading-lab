@@ -2,7 +2,6 @@ import type {
   AccountState,
   DecisionContext,
   EvaluationTrigger,
-  MarketRegime,
   MarketSnapshot,
   NewsEvent,
   OnchainSnapshot,
@@ -11,6 +10,8 @@ import type {
   PositionState,
   RiskState
 } from "../domain/types.js";
+
+import { buildContextSummary } from "./contextSummary.js";
 
 export class RuntimeState {
   private latestMarket: MarketSnapshot | null = null;
@@ -152,27 +153,6 @@ export class RuntimeState {
     );
     const totalWeight = latestNews.reduce((accumulator, event) => accumulator + event.relevanceScore, 0);
     const averageSentiment = totalWeight > 0 ? weightedSentiment / totalWeight : 0;
-    const momentumScore =
-      this.latestMarket.priceChangePct1m * 0.35 +
-      this.latestMarket.priceChangePct5m * 0.3 +
-      this.latestMarket.priceChangePct15m * 0.2 +
-      this.latestMarket.trendStrengthPct * 0.15;
-
-    const trendBias =
-      this.latestMarket.emaFast > this.latestMarket.emaMedium && this.latestMarket.priceChangePct15m >= 0
-        ? "bullish"
-        : this.latestMarket.emaFast < this.latestMarket.emaMedium && this.latestMarket.priceChangePct15m <= 0
-          ? "bearish"
-          : "neutral";
-    const catalystBias = averageSentiment > 0.12 ? "bullish" : averageSentiment < -0.12 ? "bearish" : "neutral";
-    const notes = [
-      `volume acceleration ${this.latestMarket.volumeAcceleration.toFixed(2)}x versus recent average`,
-      `distance to intraday high ${this.latestMarket.distanceFromIntradayHighPct.toFixed(2)}%`,
-      `distance to intraday low ${this.latestMarket.distanceFromIntradayLowPct.toFixed(2)}%`
-    ];
-
-    const regime = this.classifyRegime(this.latestMarket);
-
     return {
       market_snapshot: this.latestMarket,
       derivatives_snapshot: {
@@ -187,17 +167,7 @@ export class RuntimeState {
       position_state: this.getPosition(),
       account_state: this.getAccount(),
       risk_state: this.getRiskState(policy),
-      context_summary: {
-        regime,
-        trend_bias: trendBias,
-        catalyst_bias: catalystBias,
-        momentum_score: Number(momentumScore.toFixed(3)),
-        key_levels: {
-          intraday_high: this.latestMarket.intradayHigh,
-          intraday_low: this.latestMarket.intradayLow
-        },
-        notes
-      },
+      context_summary: buildContextSummary(this.latestMarket, averageSentiment),
       trigger
     };
   }
@@ -253,31 +223,5 @@ export class RuntimeState {
       averageMae: closedTrades.length > 0 ? closedTrades.reduce((sum, trade) => sum + trade.mae, 0) / closedTrades.length : 0,
       exitDistribution
     };
-  }
-
-  private classifyRegime(snapshot: MarketSnapshot): MarketRegime {
-    if (
-      snapshot.emaFast > snapshot.emaMedium &&
-      snapshot.priceChangePct15m >= 0.2 &&
-      snapshot.priceChangePct1h >= 0.6 &&
-      snapshot.trendStrengthPct >= 0.18
-    ) {
-      return "trend_up";
-    }
-
-    if (
-      snapshot.emaFast < snapshot.emaMedium &&
-      snapshot.priceChangePct15m <= -0.2 &&
-      snapshot.priceChangePct1h <= -0.6 &&
-      snapshot.trendStrengthPct <= -0.18
-    ) {
-      return "trend_down";
-    }
-
-    if (Math.abs(snapshot.priceChangePct5m) < 0.18 && Math.abs(snapshot.trendStrengthPct) < 0.14) {
-      return "range";
-    }
-
-    return "transition";
   }
 }
