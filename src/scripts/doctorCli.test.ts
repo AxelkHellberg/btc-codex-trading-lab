@@ -7,7 +7,7 @@ vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 vi.mock("../config.js", () => ({ config: { postgresUrl: "fixture", redisUrl: "fixture", port: 1, symbol: "BTCUSDT", tradingMode: "paper", binance: { restBaseUrl: "https://fixture.invalid" }, telegram: {} } }));
 vi.mock("../logger.js", () => ({ logger: { info: mocks.info, error: mocks.error } }));
 vi.mock("pg", () => ({ Client: class { async connect() {} async query() {} async end() {} } }));
-vi.mock("ioredis", () => ({ Redis: class { async ping() { return "PONG"; } async quit() {} } }));
+vi.mock("ioredis", () => ({ Redis: class { on() {} async connect() {} async ping() { return "PONG"; } async quit() {} } }));
 afterEach(() => vi.unstubAllGlobals());
 
 it("doctor checks the same installed CLI without global PATH or npx resolution", async () => {

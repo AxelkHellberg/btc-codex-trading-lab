@@ -24,7 +24,12 @@ const run = async (command: string, args: string[]): Promise<{ code: number; std
 
 const main = async (): Promise<void> => {
   const pg = new Client({ connectionString: config.postgresUrl });
-  const redis = new Redis(config.redisUrl);
+  const redis = new Redis(config.redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null
+  });
+  redis.on("error", () => undefined);
   let postgres = "down";
   let redisState = "down";
   let app = "down";
@@ -41,6 +46,7 @@ const main = async (): Promise<void> => {
   }
 
   try {
+    await redis.connect();
     redisState = (await redis.ping()) === "PONG" ? "ok" : "down";
   } catch {
     redisState = "down";
