@@ -53,7 +53,7 @@ Runtime flow:
 
 ## Stack
 
-- Node.js 22
+- Node.js 22 with npm 10.9.4
 - TypeScript
 - Fastify
 - PostgreSQL
@@ -77,12 +77,15 @@ Runtime flow:
 2. Fill the required credentials
 3. Authenticate Codex:
    - `npx @openai/codex login --device-auth`
-4. Install dependencies:
-   - `npm install`
+4. Select the declared package manager and install the locked dependencies:
+   - `npm install --global npm@10.9.4`
+   - `npm ci`
 5. Start local infrastructure:
    - `docker compose up -d postgres redis`
 6. Start the app:
    - `npm run dev`
+
+The manifest declares `packageManager: npm@10.9.4` and the same npm engine version; CI installs that version before `npm ci`. Use `npm ci` for clean verification. For an intentional dependency update, use npm 10.9.4 with `npm install <package>@<version>`, then review and commit both `package.json` and `package-lock.json`. Do not regenerate the lockfile merely because a different npm version is installed.
 
 ### Paper-first startup
 

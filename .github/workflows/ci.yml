@@ -20,6 +20,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Use declared npm version
+        run: npm install --global "$(node -p "require('./package.json').packageManager")"
+
+      - name: Report toolchain
+        run: |
+          node --version
+          npm --version
+
       - name: Install dependencies
         run: npm ci
 
