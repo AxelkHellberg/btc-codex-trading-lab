@@ -8,10 +8,13 @@ COPY tsconfig.json vitest.config.ts ./
 COPY src ./src
 RUN npm run build
 
+FROM base AS production-deps
+RUN npm prune --omit=dev
+
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=base /app/node_modules ./node_modules
+COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 EXPOSE 3000

@@ -155,3 +155,19 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Production image packaging check
+
+The Docker build keeps the compiler and test tools in its build stages and prunes
+`devDependencies` before copying packages into the final runtime image. To verify
+that boundary after a packaging or dependency change:
+
+```bash
+docker build -t btc-trader:local .
+./scripts/check-runtime-image.sh btc-trader:local
+```
+
+The smoke check runs with networking disabled. It checks the compiled entrypoint,
+loads every direct production dependency, and rejects direct development packages
+in the runtime tree. It does not start the trading application or validate service
+readiness, credentials, or the exchange connection.
