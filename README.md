@@ -124,6 +124,10 @@ Linux VM template:
 
 - `ops/systemd/btc-codex-trader.service`
 
+The unit builds the checked-out source with `npm run build` before **every** app start, including restarts. A failed build prevents `npm start` from running, so a stale `dist/` directory is not served after a compilation error. Install the locked dependencies (including development dependencies for TypeScript) with `npm ci` before starting or restarting the unit. Do not prune development dependencies in this source-based service path.
+
+Provision `/opt/btc-codex-trading-lab` and its `.env` for the `ubuntu` service user, install Node/npm so `/usr/bin/npm` is available, and start PostgreSQL/Redis separately before enabling the unit. After pulling a source update, run `npm ci` if the lockfile changed, then restart the service; the pre-start build compiles that checkout. Check `journalctl -u btc-codex-trader` for build failures. This unit does not provision backing services or replace dependency readiness checks.
+
 ## HTTP endpoints
 
 - `GET /healthz`
