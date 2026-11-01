@@ -11,7 +11,7 @@ vi.mock("ioredis", () => ({ Redis: class { on() {} async connect() {} async ping
 afterEach(() => vi.unstubAllGlobals());
 
 it("doctor checks the same installed CLI without global PATH or npx resolution", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, ts: Date.now() }) }));
   mocks.spawn.mockImplementation(() => {
     const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
     queueMicrotask(() => child.emit("close", 0));
