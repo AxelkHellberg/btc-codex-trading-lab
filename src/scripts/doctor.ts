@@ -4,6 +4,7 @@ import { Redis } from "ioredis";
 import { Client } from "pg";
 
 import { config } from "../config.js";
+import { codexCliInvocation } from "../infra/codexCli.js";
 import { logger } from "../logger.js";
 
 const run = async (command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> =>
@@ -72,7 +73,8 @@ const main = async (): Promise<void> => {
     telegram_present: Boolean(config.telegram.botToken && config.telegram.chatId)
   };
 
-  const codexStatus = await run("npx", ["@openai/codex", "login", "status"]);
+  const cli = codexCliInvocation(["login", "status"]);
+  const codexStatus = await run(cli.command, cli.args);
   logger.info(
     {
       checks,
