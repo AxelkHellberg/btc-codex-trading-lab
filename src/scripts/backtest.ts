@@ -3,6 +3,7 @@ import type { DecisionContext, StrategySignal } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
 import { logger } from "../logger.js";
 import { PaperBroker } from "../services/brokers.js";
+import { buildContextSummary } from "../services/contextSummary.js";
 import { RiskEngine } from "../services/riskEngine.js";
 import { StrategyPlanner } from "../services/strategyPlanner.js";
 
@@ -248,44 +249,7 @@ const main = async (): Promise<void> => {
         cooldownActive: false,
         reasons: []
       },
-      context_summary: {
-        regime:
-          marketSnapshot.emaFast > marketSnapshot.emaMedium &&
-          marketSnapshot.priceChangePct15m >= 0.2 &&
-          marketSnapshot.priceChangePct1h >= 0.6
-            ? "trend_up"
-            : marketSnapshot.emaFast < marketSnapshot.emaMedium &&
-                marketSnapshot.priceChangePct15m <= -0.2 &&
-                marketSnapshot.priceChangePct1h <= -0.6
-              ? "trend_down"
-              : Math.abs(marketSnapshot.priceChangePct5m) < 0.18 && Math.abs(marketSnapshot.trendStrengthPct) < 0.14
-                ? "range"
-                : "transition",
-        trend_bias:
-          marketSnapshot.emaFast > marketSnapshot.emaMedium
-            ? "bullish"
-            : marketSnapshot.emaFast < marketSnapshot.emaMedium
-              ? "bearish"
-              : "neutral",
-        catalyst_bias: "neutral",
-        momentum_score: Number(
-          (
-            marketSnapshot.priceChangePct1m * 0.2 +
-            marketSnapshot.priceChangePct5m * 0.35 +
-            marketSnapshot.priceChangePct15m * 0.2 +
-            marketSnapshot.trendStrengthPct * 10 * 0.15 +
-            (marketSnapshot.volumeAcceleration - 1) * 100 * 0.1
-          ).toFixed(2)
-        ),
-        key_levels: {
-          intraday_high: intradayHigh,
-          intraday_low: intradayLow
-        },
-        notes: [
-          `EMA9=${emaFast.toFixed(2)} EMA21=${emaMedium.toFixed(2)}`,
-          `volAccel=${marketSnapshot.volumeAcceleration.toFixed(2)}x`
-        ]
-      },
+      context_summary: buildContextSummary(marketSnapshot),
       trigger: {
         reason: "minute_recheck",
         priority: 0,
