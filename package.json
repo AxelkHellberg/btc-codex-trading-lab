@@ -25,7 +25,7 @@
   "homepage": "https://github.com/AxelkHellberg/btc-codex-trading-lab#readme",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.0.0 || ^24.0.0"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

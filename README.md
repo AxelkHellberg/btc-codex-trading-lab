@@ -53,7 +53,7 @@ Runtime flow:
 
 ## Stack
 
-- Node.js 22
+- Node.js 22 or 24
 - TypeScript
 - Fastify
 - PostgreSQL
@@ -72,6 +72,8 @@ Runtime flow:
 - The system defaults to paper trading and should be treated as experimental research software
 
 ## Local development
+
+Use Node.js 22 or 24. These are the supported release lines and both run the build and test suite in CI. Other majors, including odd-numbered releases, are outside the declared engine range.
 
 1. Copy `.env.example` to `.env`
 2. Fill the required credentials
