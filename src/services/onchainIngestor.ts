@@ -23,6 +23,8 @@ type DifficultyResponse = {
 
 export class OnchainIngestor {
   private timer: NodeJS.Timeout | null = null;
+  private startPromise: Promise<void> | null = null;
+  private lifecycleGeneration = 0;
   private lastHeight: number | null = null;
   private lastHeightAt: number | null = null;
   private lastFees: number | null = null;
@@ -34,16 +36,36 @@ export class OnchainIngestor {
     private readonly onSnapshot: (snapshot: OnchainSnapshot) => Promise<void> | void
   ) {}
 
-  public async start(): Promise<void> {
-    await this.runPoll();
-    this.timer = setInterval(() => {
-      void this.runPoll();
-    }, 5 * 60_000);
+  public start(): Promise<void> {
+    if (this.startPromise) {
+      return this.startPromise;
+    }
+
+    const generation = this.lifecycleGeneration;
+    const starting = this.runPoll().then(() => {
+      // stop() may have invalidated this startup while its initial poll awaited.
+      if (generation !== this.lifecycleGeneration) {
+        return;
+      }
+      this.timer = setInterval(() => {
+        void this.runPoll();
+      }, 5 * 60_000);
+    }).catch((error: unknown) => {
+      if (this.startPromise === starting) {
+        this.startPromise = null;
+      }
+      throw error;
+    });
+    this.startPromise = starting;
+    return starting;
   }
 
   public stop(): void {
+    this.lifecycleGeneration += 1;
+    this.startPromise = null;
     if (this.timer) {
       clearInterval(this.timer);
+      this.timer = null;
     }
   }
 
