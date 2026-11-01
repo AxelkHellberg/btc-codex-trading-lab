@@ -96,7 +96,7 @@ The doctor output reports connectivity for PostgreSQL, Redis, the local HTTP ser
 
 ### Live mode
 
-`./scripts/run-live.sh` sets `TRADING_MODE=live` for that process; it does not configure or validate your account for you. Use it only after paper-mode validation and after setting both `BINANCE_API_KEY` and `BINANCE_API_SECRET` in a local, uncommitted `.env` file. Review the risk settings in the same file—especially `RISK_PER_TRADE`, `MAX_LEVERAGE`, `MAX_DAILY_LOSS`, `MAX_WEEKLY_DRAWDOWN`, `MAX_OPEN_POSITIONS`, and `COOLDOWN_MINUTES`—before starting the live path.
+`./scripts/run-live.sh` builds the current source once, then starts `node dist/index.js` through `npm start` with `TRADING_MODE=live`. A failed build prevents startup. Unlike `npm run dev` and `./scripts/run-paper.sh`, this helper does not watch source files or restart on edits. It sets live mode only for that process; it does not configure or validate your account for you. Use it only after paper-mode validation and after setting both `BINANCE_API_KEY` and `BINANCE_API_SECRET` in a local, uncommitted `.env` file. Review the risk settings in the same file—especially `RISK_PER_TRADE`, `MAX_LEVERAGE`, `MAX_DAILY_LOSS`, `MAX_WEEKLY_DRAWDOWN`, `MAX_OPEN_POSITIONS`, and `COOLDOWN_MINUTES`—before starting the live path.
 
 Useful commands:
 

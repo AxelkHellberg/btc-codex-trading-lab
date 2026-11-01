@@ -5,4 +5,5 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 export TRADING_MODE=live
-npm run dev
+npm run build
+exec npm start
