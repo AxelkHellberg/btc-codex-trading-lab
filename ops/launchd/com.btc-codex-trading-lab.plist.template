@@ -7,10 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
-      <string>/usr/bin/caffeinate</string>
-      <string>-im</string>
       <string>__NODE_BIN__</string>
-      <string>dist/index.js</string>
+      <string>__WORKDIR__/scripts/run-launch-agent.mjs</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -18,12 +16,14 @@
 
     <key>EnvironmentVariables</key>
     <dict>
+      <key>PATH</key>
+      <string>__PATH__</string>
       <key>HOME</key>
       <string>__HOME__</string>
     </dict>
 
     <key>KeepAlive</key>
-    <true/>
+    <false/>
 
     <key>RunAtLoad</key>
     <true/>

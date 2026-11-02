@@ -10,10 +10,11 @@ STDOUT_PATH="$ROOT/logs/launchd.out.log"
 STDERR_PATH="$ROOT/logs/launchd.err.log"
 
 mkdir -p "$ROOT/logs" "$HOME/Library/LaunchAgents"
-npm run build >/dev/null
+(cd "$ROOT" && npm run build >/dev/null)
 sed \
   -e "s|__LABEL__|$LABEL|g" \
   -e "s|__NODE_BIN__|$NODE_BIN|g" \
+  -e "s|__PATH__|$(dirname "$NODE_BIN"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin|g" \
   -e "s|__WORKDIR__|$ROOT|g" \
   -e "s|__HOME__|$HOME|g" \
   -e "s|__STDOUT__|$STDOUT_PATH|g" \
