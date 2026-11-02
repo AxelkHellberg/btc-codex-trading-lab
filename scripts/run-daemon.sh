@@ -1,38 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT"
 
 mkdir -p logs run
 
-if [ -f run/app.pid ]; then
-  OLD_PID="$(cat run/app.pid)"
-  if kill -0 "$OLD_PID" >/dev/null 2>&1; then
-    echo "app already running with pid $OLD_PID"
-    exit 0
-  fi
-  rm -f run/app.pid
-fi
+NODE="$(command -v node)"
+NODE="$("$NODE" -p 'process.execPath')"
+HELPER="$ROOT/scripts/daemon-process.mjs"
 
-if [ -f run/caffeinate.pid ]; then
-  OLD_CAFFEINATE_PID="$(cat run/caffeinate.pid)"
-  if kill -0 "$OLD_CAFFEINATE_PID" >/dev/null 2>&1; then
-    kill "$OLD_CAFFEINATE_PID" >/dev/null 2>&1 || true
-  fi
-  rm -f run/caffeinate.pid
+if OLD_PID="$("$NODE" "$HELPER" verify run/app.pid)"; then
+  echo "app already running with pid $OLD_PID"
+  exit 0
 fi
+"$NODE" "$HELPER" stop run/caffeinate.pid
 
 docker compose up -d postgres redis >/dev/null
 npm run build >/dev/null
 
-nohup node dist/index.js >> logs/app.log 2>&1 &
+nohup "$NODE" "$ROOT/dist/index.js" >> logs/app.log 2>&1 &
 APP_PID=$!
-echo "$APP_PID" > run/app.pid
+if ! "$NODE" "$HELPER" record run/app.pid app "$APP_PID" "$NODE"; then
+  kill "$APP_PID" >/dev/null 2>&1 || true
+  exit 1
+fi
 
 nohup /usr/bin/caffeinate -im -w "$APP_PID" >/dev/null 2>&1 &
 CAFFEINATE_PID=$!
-echo "$CAFFEINATE_PID" > run/caffeinate.pid
+if ! "$NODE" "$HELPER" record run/caffeinate.pid caffeinate "$CAFFEINATE_PID" /usr/bin/caffeinate "$APP_PID"; then
+  "$NODE" "$HELPER" stop run/app.pid
+  exit 1
+fi
 
 echo "app pid: $APP_PID"
 echo "caffeinate pid: $CAFFEINATE_PID"

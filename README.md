@@ -155,3 +155,15 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Daemon PID ownership
+
+The daemon helpers record the process user, start time, exact absolute command,
+and repository root alongside each PID. They reuse or signal a process only while
+that identity still matches. Numeric legacy PID files and malformed or stale
+records are removed without sending a signal. Stop an already running daemon
+with the previous version before upgrading these helpers; legacy records cannot
+prove ownership safely. The check uses `ps` on macOS/Linux and requires Node on
+the operator PATH. It prevents accidental PID reuse; it is not a security boundary
+against a process owner, and portable process inspection and signaling are not
+atomic. The readiness check proposed in #301 remains separate.
