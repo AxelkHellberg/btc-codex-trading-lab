@@ -139,7 +139,7 @@ const main = async (): Promise<void> => {
     })();
   }, 60_000);
 
-  const httpServer = await createHttpServer(runtime, config.port, async () => {
+  const httpServer = await createHttpServer(runtime, config.port, config.tradingMode, async () => {
     await evaluateTrigger({
       reason: "manual_recheck",
       priority: 3,

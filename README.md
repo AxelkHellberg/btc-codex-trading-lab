@@ -130,6 +130,11 @@ Linux VM template:
 - `GET /status`
 - `POST /trigger`
 
+`GET /status` includes `tradingMode` (`paper` or `live`) from the running
+configuration. The dashboard shows the same mode prominently: live mode means
+real orders are enabled; paper mode uses simulated orders. This label identifies
+the configured execution path, not exchange connectivity or runtime readiness.
+
 ## CI
 
 GitHub Actions runs:
