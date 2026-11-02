@@ -157,3 +157,17 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Bounded runtime diagnostics
+
+`npm run doctor` gives PostgreSQL connect/query work, Redis, each HTTP probe
+(including the app response body), and the local Codex status process a five-second
+deadline. The four dependency probes run concurrently; PostgreSQL cleanup gets at
+most one extra second, followed by at most 5.25 seconds for the CLI. Under a
+responsive event loop the diagnostic completes in about 12 seconds plus startup.
+Timed-out checks are reported as down. The CLI is terminated with SIGTERM, then
+SIGKILL after 250 ms on POSIX, including its process group. No login or model call
+is performed. Every required dependency and the local CLI status must succeed for
+a zero exit code. The command exits after logging its report even if a broken
+driver retains an open handle. Deadlines cannot interrupt synchronous event-loop
+blocking or an operating-system stall.
