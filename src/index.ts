@@ -15,6 +15,7 @@ import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
 import { RuntimeState } from "./services/runtimeState.js";
 import { ServiceLifecycle } from "./services/serviceLifecycle.js";
+import { StartupInterrupted, StartupShutdown } from "./services/startupShutdown.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
 
 const main = async (): Promise<void> => {
@@ -35,6 +36,15 @@ const main = async (): Promise<void> => {
     }
   };
 
+  const shutdown = new StartupShutdown(
+    cleanup,
+    code => process.exit(code),
+    error => logger.error({ error }, "Shutdown failed")
+  );
+  process.on("SIGINT", shutdown.request);
+  process.on("SIGTERM", shutdown.request);
+  let startupFailed = false;
+
   try {
     const notifier = new TelegramNotifier(config.telegram.botToken, config.telegram.chatId, logger);
     const binance = new BinanceFuturesClient(
@@ -54,6 +64,7 @@ const main = async (): Promise<void> => {
     const riskEngine = new RiskEngine(config);
 
     await store.init();
+    shutdown.checkpoint();
 
     const evaluateTrigger = async (trigger: {
       reason:
@@ -152,12 +163,15 @@ const main = async (): Promise<void> => {
         triggeredAt: Date.now()
       });
     });
+    lifecycle.own("HTTP server", () => httpServer.stop());
+    shutdown.checkpoint();
+    await httpServer.start();
+    shutdown.checkpoint();
     await lifecycle.start([
-      { name: "HTTP server", start: () => httpServer.start(), stop: () => httpServer.stop() },
       { name: "Market ingestor", start: () => marketIngestor.start(), stop: () => marketIngestor.stop() },
       { name: "News ingestor", start: () => newsIngestor.start(), stop: () => newsIngestor.stop() },
       { name: "On-chain ingestor", start: () => onchainIngestor.start(), stop: () => onchainIngestor.stop() }
-    ]);
+    ], shutdown.checkpoint);
 
     const heartbeatTimer = setInterval(() => {
       void (async () => {
@@ -172,18 +186,6 @@ const main = async (): Promise<void> => {
 
     lifecycle.own("Heartbeat", () => clearInterval(heartbeatTimer));
 
-    const shutdown = async (): Promise<void> => {
-      await cleanup();
-      process.exit(0);
-    };
-
-    process.on("SIGINT", () => {
-      void shutdown();
-    });
-    process.on("SIGTERM", () => {
-      void shutdown();
-    });
-
     logger.info(
       {
         mode: config.tradingMode,
@@ -193,8 +195,11 @@ const main = async (): Promise<void> => {
       "BTC Codex trader started"
     );
   } catch (error) {
+    startupFailed = !(error instanceof StartupInterrupted);
     await cleanup();
-    throw error;
+    if (startupFailed) throw error;
+  } finally {
+    shutdown.finishStartup(startupFailed);
   }
 };
 

@@ -16,12 +16,14 @@ export class ServiceLifecycle {
     this.resources.push({ name, stop });
   }
 
-  public async start(services: ManagedService[]): Promise<void> {
+  public async start(services: ManagedService[], checkpoint: () => void = () => undefined): Promise<void> {
     try {
       // Sequential startup makes resource ownership and rollback order explicit.
       for (const service of services) {
+        checkpoint();
         this.own(service.name, service.stop);
         await service.start();
+        checkpoint();
       }
     } catch (error) {
       await this.stop();
