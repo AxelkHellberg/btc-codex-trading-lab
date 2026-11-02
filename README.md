@@ -155,3 +155,18 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Live order-count snapshots
+
+Live account refreshes query both regular and conditional open orders for the
+configured symbol. A failed, malformed, duplicate-ID, or wrong-symbol order
+response rejects the refresh rather than publishing an invented zero. The count
+includes protective orders and is scoped to that symbol, not other instruments
+in the account. Each refresh adds two signed read requests; event coalescing and
+rate-limit scheduling remain separate work (#58). These REST reads form a
+best-effort snapshot rather than an atomic view of balances and orders. They do
+not add an exchange-side limit or guarantee that order state remains unchanged
+between risk approval and submission.
+
+Endpoint contracts: [regular open orders](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Current-All-Open-Orders)
+and [conditional open orders](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Current-All-Algo-Open-Orders).

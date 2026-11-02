@@ -114,6 +114,20 @@ describe("RiskEngine", () => {
     expect(result.executionPlan?.tp2).toBeGreaterThan(result.executionPlan?.tp1 ?? 0);
   });
 
+  it("rejects entries when the live order count reaches the configured limit", () => {
+    const context = buildContext();
+    context.account_state.openOrders = config.riskPolicy.maxOpenPositions;
+    const planner = new StrategyPlanner(config);
+    const plan = planner.plan(context, {
+      bias: "LONG", confidence: 0.75, setup_type: "continuation",
+      invalidation_price: 99_000, holding_horizon_minutes: 90,
+      reasoning_summary: "Fixture trend-aligned entry."
+    });
+    const result = new RiskEngine(config).evaluate(context, plan);
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("open order limit reached");
+  });
+
   it("rejects continuation entries in a range regime", () => {
     const context = buildContext({
       regime: "range",

@@ -555,7 +555,7 @@ export class LiveBroker implements Broker {
         });
       }
       const [accountState, positionState] = await Promise.all([
-        this.client.getBalanceState(),
+        this.client.getBalanceState(this.config.symbol),
         this.client.getPositionState(this.config.symbol)
       ]);
       const now = Date.now();
@@ -616,7 +616,7 @@ export class LiveBroker implements Broker {
       newClientOrderId: `close-${tradeId}`
     });
     const [accountState, positionState] = await Promise.all([
-      this.client.getBalanceState(),
+      this.client.getBalanceState(this.config.symbol),
       this.client.getPositionState(this.config.symbol)
     ]);
     const now = Date.now();
