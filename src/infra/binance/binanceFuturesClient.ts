@@ -165,8 +165,12 @@ export class BinanceFuturesClient {
     }));
   }
 
-  public async getBalanceState(): Promise<AccountState> {
-    const balances = await this.signedGet<BalanceResponse>("/fapi/v3/balance");
+  public async getBalanceState(symbol: string): Promise<AccountState> {
+    if (!/^[A-Z0-9_]+$/.test(symbol)) throw new Error("A valid symbol is required for account order counts");
+    const [balances, openOrders] = await Promise.all([
+      this.signedGet<BalanceResponse>("/fapi/v3/balance"),
+      this.getOpenOrderCount(symbol)
+    ]);
     const usdt = balances.find((entry) => entry.asset === "USDT");
     const equity =
       Number(usdt?.crossWalletBalance ?? 0) + Number(usdt?.crossUnPnl ?? 0) || Number(usdt?.balance ?? 0);
@@ -178,9 +182,30 @@ export class BinanceFuturesClient {
       dailyPnl: 0,
       weeklyDrawdown: 0,
       consecutiveLosses: 0,
-      openOrders: 0,
+      openOrders,
       updatedAt: Number(usdt?.updateTime ?? Date.now())
     };
+  }
+
+  private async getOpenOrderCount(symbol: string): Promise<number> {
+    const endpoints = [
+      { path: "/fapi/v1/openOrders", id: "orderId" },
+      { path: "/fapi/v1/openAlgoOrders", id: "algoId" }
+    ];
+    const counts = await Promise.all(endpoints.map(async ({ path, id }) => {
+      const response = await this.signedGet<unknown>(path, { symbol });
+      if (!Array.isArray(response)) throw new Error(`Invalid open-order response from ${path}`);
+      const ids = new Set<number>();
+      for (const row of response) {
+        if (typeof row !== "object" || row === null || row.symbol !== symbol ||
+            !Number.isSafeInteger(row[id]) || row[id] <= 0 || ids.has(row[id])) {
+          throw new Error(`Invalid open-order response from ${path}`);
+        }
+        ids.add(row[id]);
+      }
+      return ids.size;
+    }));
+    return counts.reduce((total, count) => total + count, 0);
   }
 
   public async getPositionState(symbol: string): Promise<PositionState> {

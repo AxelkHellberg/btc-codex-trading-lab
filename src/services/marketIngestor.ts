@@ -135,7 +135,7 @@ export class MarketIngestor {
     }
 
     const [account, position] = await Promise.all([
-      this.client.getBalanceState(),
+      this.client.getBalanceState(this.config.symbol),
       this.client.getPositionState(this.config.symbol)
     ]);
     await this.callbacks.onAccount(account);
@@ -205,7 +205,7 @@ export class MarketIngestor {
         this.client.getOpenInterest(this.config.symbol),
         this.client.getTopTraderLongShortRatio(this.config.symbol),
         this.config.tradingMode === "live"
-          ? this.client.getBalanceState()
+          ? this.client.getBalanceState(this.config.symbol)
           : Promise.resolve(null),
         this.config.tradingMode === "live"
           ? this.client.getPositionState(this.config.symbol)
