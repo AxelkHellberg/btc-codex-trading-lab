@@ -6,11 +6,12 @@ const mocks = vi.hoisted(() => ({ spawn: vi.fn(), info: vi.fn(), error: vi.fn() 
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 vi.mock("../config.js", () => ({ config: { postgresUrl: "fixture", redisUrl: "fixture", port: 1, symbol: "BTCUSDT", tradingMode: "paper", binance: { restBaseUrl: "https://fixture.invalid" }, telegram: {} } }));
 vi.mock("../logger.js", () => ({ logger: { info: mocks.info, error: mocks.error } }));
-vi.mock("pg", () => ({ Client: class { async connect() {} async query() {} async end() {} } }));
-vi.mock("ioredis", () => ({ Redis: class { on() {} async connect() {} async ping() { return "PONG"; } async quit() {} } }));
-afterEach(() => vi.unstubAllGlobals());
+vi.mock("pg", () => ({ Client: class { on() {} async connect() {} async query() {} async end() {} } }));
+vi.mock("ioredis", () => ({ Redis: class { on() {} async connect() {} async ping() { return "PONG"; } disconnect() {} } }));
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("doctor checks the same installed CLI without global PATH or npx resolution", async () => {
+  vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, ts: Date.now() }) }));
   mocks.spawn.mockImplementation(() => {
     const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
@@ -22,5 +23,5 @@ it("doctor checks the same installed CLI without global PATH or npx resolution",
   expect(mocks.error).not.toHaveBeenCalled();
   expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(process.execPath,
     [createRequire(import.meta.url).resolve("@openai/codex/bin/codex.js"), "login", "status"],
-    { env: process.env });
+    { env: process.env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
 });
