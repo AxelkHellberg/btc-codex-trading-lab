@@ -1,17 +1,21 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 
+import type { TradingMode } from "../domain/types.js";
 import type { RuntimeState } from "../services/runtimeState.js";
 
 export async function createHttpServer(
   runtime: RuntimeState,
   port: number,
+  tradingMode: TradingMode,
   triggerEvaluation?: () => Promise<void>
 ): Promise<{
   start: () => Promise<void>;
   stop: () => Promise<void>;
+  inject: FastifyInstance["inject"];
 }> {
   const app = Fastify({ logger: false });
 
+  const modeLabel = tradingMode === "live" ? "LIVE trading: real orders enabled" : "Paper trading: simulated orders";
   const dashboardHtml = `<!doctype html>
 <html lang="en">
   <head>
@@ -226,7 +230,7 @@ export async function createHttpServer(
       <div class="hero">
         <div>
           <h1>BTC Codex Trader</h1>
-          <div class="sub">Paper mode dashboard. Auto-refresh every 2 seconds.</div>
+          <div class="sub"><strong id="tradingMode" class="${tradingMode === "live" ? "negative" : "positive"}">${modeLabel}</strong>. Auto-refresh every 2 seconds.</div>
         </div>
         <div class="status-pill">
           <span class="dot"></span>
@@ -537,6 +541,7 @@ export async function createHttpServer(
   });
 
   app.get("/status", async () => ({
+    tradingMode,
     market: runtime.getMarket(),
     onchain: runtime.getOnchain(),
     account: runtime.getAccount(),
@@ -559,6 +564,7 @@ export async function createHttpServer(
   });
 
   return {
+    inject: app.inject.bind(app),
     start: async () => {
       await app.listen({ port, host: "0.0.0.0" });
     },
