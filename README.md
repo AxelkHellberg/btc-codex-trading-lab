@@ -155,3 +155,21 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Container artifact check
+
+CI builds the Dockerfile and imports compiled modules and runtime dependencies
+inside the final image with networking disabled. It does not start the trader,
+request a model decision, mount credentials, or connect to backing services. Run
+it locally with:
+
+```sh
+docker build --tag btc-trader:ci .
+docker run --rm --network none --entrypoint node \
+  --mount "type=bind,src=$PWD/scripts/check-container.mjs,dst=/app/check-container.mjs,readonly" \
+  btc-trader:ci /app/check-container.mjs
+```
+
+A passing check verifies image assembly and module availability. Full Compose
+startup, storage connectivity, authentication and exchange integration still need
+separate validation.

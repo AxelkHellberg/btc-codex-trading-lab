@@ -28,3 +28,21 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build runtime image
+        run: docker build --tag btc-trader:ci .
+
+      - name: Check runtime modules without network access
+        run: >-
+          docker run --rm --network none --entrypoint node
+          --mount type=bind,src="${{ github.workspace }}/scripts/check-container.mjs",dst=/app/check-container.mjs,readonly
+          btc-trader:ci /app/check-container.mjs
