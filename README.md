@@ -155,3 +155,24 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### macOS launch-agent startup
+
+Each launch now runs `scripts/run-launch-agent.mjs` from this checkout. It starts
+only the local Postgres and Redis Compose services, waits for Compose readiness
+(up to 60 seconds), checks Postgres and requires a Redis `PONG`, then builds the
+current source before starting `dist/index.js` under caffeinate. Docker Desktop,
+Compose with `--wait` support, installed npm dependencies and the configured
+local services must be available; the wrapper does not launch Docker Desktop or
+install packages. It uses the Node executable selected at installation and a PATH
+including that executable's directory and standard Homebrew paths.
+
+Each preflight command has a deadline (90 seconds for Compose startup, 10 seconds
+per service probe, 120 seconds for the build). A failure prevents app startup and
+is written to `logs/launchd.err.log`. Automatic KeepAlive is disabled to avoid
+restart loops when Docker or the build is unavailable. After correcting the
+problem, retry with `launchctl kickstart gui/$(id -u)/com.btc-codex-trading-lab`,
+or reinstall the launch agent to adopt these arguments. The wrapper stays in the
+foreground and forwards termination to its current process group; the app itself
+retains responsibility for graceful resource shutdown. Changing the Node install
+location requires reinstalling the launch agent.
