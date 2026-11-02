@@ -61,6 +61,7 @@ export class CodexDecisionWorker {
   }
 
   public async decide(context: DecisionContext): Promise<StrategySignal> {
+    const deadline = performance.now() + this.config.codex.timeoutMs;
     const prompt = buildPrompt(context);
 
     try {
@@ -89,20 +90,25 @@ export class CodexDecisionWorker {
       }
     }
 
-    const cliDecision = StrategySignalSchema.parse(await this.runViaCli(prompt));
+    const cliDecision = StrategySignalSchema.parse(await this.runViaCli(prompt, deadline));
     return {
       ...cliDecision,
       invalidation_price: cliDecision.invalidation_price ?? undefined
     };
   }
 
-  private async runViaCli(prompt: string): Promise<unknown> {
+  private async runViaCli(prompt: string, deadline: number): Promise<unknown> {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "btc-codex-schema-"));
     const schemaPath = path.join(tempDir, "strategy-signal.schema.json");
     await writeFile(schemaPath, JSON.stringify(strategySignalJsonSchema), "utf8");
 
     try {
       const finalResponse = await new Promise<string>((resolve, reject) => {
+        const remainingMs = deadline - performance.now();
+        if (remainingMs <= 0) {
+          reject(new Error("Codex decision deadline expired before CLI fallback"));
+          return;
+        }
         const child = spawn(
           path.join(process.cwd(), "node_modules", ".bin", "codex"),
           [
@@ -124,9 +130,27 @@ export class CodexDecisionWorker {
           ],
           {
             cwd: process.cwd(),
-            env: process.env
+            env: process.env,
+            detached: process.platform !== "win32"
           }
         );
+
+        let settled = false;
+        const timer = setTimeout(() => {
+          settled = true;
+          try {
+            // The CLI can launch its own executable; terminate the owned group on Unix.
+            if (process.platform !== "win32" && child.pid !== undefined) {
+              process.kill(-child.pid, "SIGKILL");
+            } else {
+              child.kill("SIGKILL");
+            }
+          } catch (error) {
+            reject(new Error("Codex CLI timed out; process termination failed", { cause: error }));
+            return;
+          }
+          reject(new Error(`Codex decision timed out after ${this.config.codex.timeoutMs}ms`));
+        }, remainingMs);
 
         let stdout = "";
         let stderr = "";
@@ -136,8 +160,16 @@ export class CodexDecisionWorker {
         child.stderr.on("data", (chunk) => {
           stderr += chunk.toString();
         });
-        child.on("error", reject);
+        child.on("error", (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        });
         child.on("close", (code) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           if (code !== 0) {
             reject(new Error(`codex exec failed with code ${code}: ${stderr}`));
             return;
