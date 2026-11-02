@@ -155,3 +155,15 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Signals during startup
+
+SIGINT and SIGTERM handlers are registered before the first awaited startup
+operation. A shutdown request stops later startup phases, lets the current phase
+settle and rolls back owned resources in reverse order. Repeated signals share
+one shutdown attempt. A ten-second shutdown deadline forces a nonzero exit if
+startup or cleanup cannot settle, with an error in the log; no successful-start
+message is emitted for cancelled startup. Resources returned by a delayed HTTP
+factory are registered before cancellation is checked. This uses the partial
+startup ownership contract from #360; it does not add cancellation support inside
+third-party I/O or wait for unrelated in-flight decision callbacks.
