@@ -253,7 +253,7 @@ export async function createHttpServer(
         </div>
 
         <div class="card metric">
-          <div class="metric-label">Realized PnL</div>
+          <div class="metric-label">Recent Realized PnL</div>
           <div class="metric-value mono" id="realizedPnl">-</div>
         </div>
         <div class="card metric">
@@ -261,7 +261,7 @@ export async function createHttpServer(
           <div class="metric-value mono" id="unrealizedPnl">-</div>
         </div>
         <div class="card metric">
-          <div class="metric-label">Win Rate</div>
+          <div class="metric-label">Recent Win Rate</div>
           <div class="metric-value mono" id="winRate">-</div>
         </div>
         <div class="card metric">
@@ -288,7 +288,8 @@ export async function createHttpServer(
 
         <div class="card wide">
           <div class="section-title">
-            <span>Performance</span>
+            <span>Recent Performance</span>
+            <span class="small" id="metricWindow">Up to 25 in-memory trades and decisions; resets on restart</span>
             <span class="small">Closed trade lifecycle metrics</span>
           </div>
           <table>
@@ -454,6 +455,10 @@ export async function createHttpServer(
         document.getElementById("volumeAccel").className = "mono " + trendClass((data.market?.volumeAcceleration || 1) - 1);
         document.getElementById("marketUpdated").textContent = "Updated " + formatTs(data.market?.timestamp);
 
+        const metricWindow = data.metricWindow;
+        document.getElementById("metricWindow").textContent = metricWindow
+          ? "Recent " + metricWindow.decisionCount + "/" + metricWindow.capacity + " decisions; " + metricWindow.closedTradeCount + " closed of " + metricWindow.tradeCount + "/" + metricWindow.capacity + " trades. Resets on restart."
+          : "Up to 25 in-memory trades and decisions; resets on restart";
         const decisions = data.recentDecisions || [];
         const flatCount = decisions.filter((item) => item.signal?.bias === "FLAT").length;
         const confidenceRejects = decisions.filter((item) => (item.reasons || []).some((reason) => reason.includes("confidence below"))).length;
@@ -542,8 +547,9 @@ export async function createHttpServer(
     account: runtime.getAccount(),
     position: runtime.getPosition(),
     tradeStats: runtime.getTradeStats(),
-    recentDecisions: runtime.getRecentDecisions().slice(0, 25),
-    recentTrades: runtime.getRecentTrades().slice(0, 25)
+    metricWindow: runtime.getMetricWindow(),
+    recentDecisions: runtime.getRecentDecisions(),
+    recentTrades: runtime.getRecentTrades()
   }));
 
   app.post("/trigger", async () => {

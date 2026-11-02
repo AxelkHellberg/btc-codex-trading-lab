@@ -12,6 +12,8 @@ import type {
   RiskState
 } from "../domain/types.js";
 
+export const RECENT_HISTORY_LIMIT = 25;
+
 export class RuntimeState {
   private latestMarket: MarketSnapshot | null = null;
   private latestOnchain: OnchainSnapshot | null = null;
@@ -203,11 +205,11 @@ export class RuntimeState {
   }
 
   public pushDecision(record: PersistedDecisionRecord): void {
-    this.decisions = [record, ...this.decisions].slice(0, 25);
+    this.decisions = [record, ...this.decisions].slice(0, RECENT_HISTORY_LIMIT);
   }
 
   public upsertTrade(record: PersistedTradeRecord): void {
-    this.trades = [record, ...this.trades.filter((trade) => trade.tradeId !== record.tradeId)].slice(0, 25);
+    this.trades = [record, ...this.trades.filter((trade) => trade.tradeId !== record.tradeId)].slice(0, RECENT_HISTORY_LIMIT);
   }
 
   public getRecentDecisions(): PersistedDecisionRecord[] {
@@ -216,6 +218,22 @@ export class RuntimeState {
 
   public getRecentTrades(): PersistedTradeRecord[] {
     return [...this.trades];
+  }
+
+  public getMetricWindow(): {
+    scope: "recent_in_memory";
+    capacity: number;
+    decisionCount: number;
+    tradeCount: number;
+    closedTradeCount: number;
+  } {
+    return {
+      scope: "recent_in_memory",
+      capacity: RECENT_HISTORY_LIMIT,
+      decisionCount: this.decisions.length,
+      tradeCount: this.trades.length,
+      closedTradeCount: this.trades.filter((trade) => trade.status === "closed").length
+    };
   }
 
   public getTradeStats(): {

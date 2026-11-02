@@ -155,3 +155,14 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Dashboard metric window
+
+Recent performance and decision rejection rates use at most 25 retained in-memory
+trades and 25 decisions, rather than full-session or persisted history. Trade
+statistics use closed trades within that retained trade window; open and partial
+trades also occupy slots. The dashboard shows the current sample counts and the
+window resets on process restart. `/status.metricWindow` reports the scope,
+capacity, decision count, trade count and closed-trade count for API consumers.
+Daily account PnL and current unrealized PnL retain their separate account/position
+meaning and are not calculated from this recent trade window.
