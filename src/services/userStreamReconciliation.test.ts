@@ -46,8 +46,10 @@ describe("user-stream independent reconciliation", () => {
   it("does not let an older user refresh overwrite a newer accepted component", async () => {
     const { client, callbacks, handle } = fixture();
     const old = deferred<typeof account>(); client.getBalanceState.mockReturnValueOnce(old.promise);
-    const first = handle(); await handle(); old.resolve({ equity: 900, updatedAt: 1 }); await first;
-    expect(callbacks.onAccount.mock.calls).toEqual([[account]]);
+    const first = handle(); const second = handle();
+    expect(client.getBalanceState).toHaveBeenCalledOnce();
+    old.resolve({ equity: 900, updatedAt: 1 }); await Promise.all([first, second]);
+    expect(callbacks.onAccount.mock.calls).toEqual([[{ equity: 900, updatedAt: 1 }], [account]]);
   });
   it("contains synchronous client and callback errors", async () => {
     const { client, callbacks, handle } = fixture();
