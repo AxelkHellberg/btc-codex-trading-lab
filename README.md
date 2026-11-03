@@ -164,3 +164,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Signed request clock
+
+Before the first signed request, the client obtains `/fapi/v1/time` from the configured Binance REST origin and estimates its clock offset at the round-trip midpoint. The shared sample is cached for five minutes. Synchronization has a five-second deadline through response parsing and rejects samples taking over one second (or half the receive window), malformed timestamps and wall-clock jumps during sampling. Failed synchronization stops the pending signed request. Public and unsigned listen-key requests do not require this sample.
+
+An HTTP 400 with a complete numeric Binance error code `-1021` refreshes the offset and permits one retry with the same business parameters and client order ID. A second rejection is surfaced. Transport errors, timeouts, server failures and other API errors are never replayed. Only a numeric code is retained from at most 1 KiB of an error body within one second; response text and signed URLs are excluded from that diagnostic. An unclassifiable response is not retried. This cannot guarantee order execution, network latency or correctness of an exchange-provided clock.

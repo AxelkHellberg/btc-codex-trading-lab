@@ -57,6 +57,10 @@ type KlineResponse = Array<
 
 export class BinanceFuturesClient {
   private userStreamKeepaliveTimer: NodeJS.Timeout | null = null;
+  private clockOffsetMs = 0;
+  private clockSyncedAt: number | null = null;
+  private clockVersion = 0;
+  private clockSync: Promise<void> | null = null;
 
   public constructor(
     private readonly baseUrl: string,
@@ -327,41 +331,89 @@ export class BinanceFuturesClient {
         query.set(key, String(value));
       }
     }
-    query.set("timestamp", String(Date.now()));
+    query.set("timestamp", String(Math.round(Date.now() + this.clockOffsetMs)));
     query.set("recvWindow", String(this.recvWindowMs));
     query.set("signature", this.sign(query));
     return query;
   }
 
   private async signedGet<T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> {
-    const query = this.signedParams(params);
-    return fetchJson<T>(`${this.baseUrl}${path}?${query.toString()}`, {
-      headers: {
-        "X-MBX-APIKEY": this.apiKey
-      }
-    });
+    return this.signedRequest<T>("GET", path, params);
   }
 
   private async signedPost(path: string, params?: Record<string, string | number | boolean>): Promise<unknown> {
-    const body = this.signedParams(params);
-    return fetchJson(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        "X-MBX-APIKEY": this.apiKey
-      },
-      body
-    });
+    return this.signedRequest("POST", path, params);
   }
 
   private async signedDelete(path: string, params?: Record<string, string | number | boolean>): Promise<unknown> {
-    const body = this.signedParams(params);
-    return fetchJson(`${this.baseUrl}${path}?${body.toString()}`, {
-      method: "DELETE",
-      headers: {
-        "X-MBX-APIKEY": this.apiKey
-      }
+    return this.signedRequest("DELETE", path, params);
+  }
+
+  private async signedRequest<T>(method: "GET" | "POST" | "DELETE", path: string,
+    params?: Record<string, string | number | boolean>): Promise<T> {
+    // Snapshot caller parameters before any await; a retry retains order identity.
+    const supplied = { ...params };
+    await this.ensureClock();
+    const version = this.clockVersion;
+    const send = () => {
+      const signed = this.signedParams(supplied);
+      return fetchJson<T>(`${this.baseUrl}${path}${method === "POST" ? "" : `?${signed}`}`, {
+        method,
+        headers: { "X-MBX-APIKEY": this.apiKey,
+          ...(method === "POST" ? { "content-type": "application/x-www-form-urlencoded" } : {}) },
+        ...(method === "POST" ? { body: signed } : {})
+      }, { captureErrorCode: true });
+    };
+    try { return await send(); }
+    catch (error) {
+      // Only Binance's explicit timestamp rejection establishes safe non-execution.
+      // Network errors, timeouts, 5xx and other order errors must never be replayed.
+      if (!(error instanceof HttpError) || error.status !== 400) throw error;
+      if (error.code !== -1021) throw error;
+      await this.ensureClock(version);
+      return send(); // A second rejection is surfaced without another retry.
+    }
+  }
+
+  private async ensureClock(rejectedVersion?: number): Promise<void> {
+    if (this.clockSync) return this.clockSync;
+    if (rejectedVersion !== undefined && rejectedVersion !== this.clockVersion) return;
+    if (rejectedVersion === undefined && this.clockSyncedAt !== null &&
+        performance.now() - this.clockSyncedAt < 5 * 60_000) return;
+    const sync = this.synchronizeClock().finally(() => {
+      if (this.clockSync === sync) this.clockSync = null;
     });
+    this.clockSync = sync;
+    return sync;
+  }
+
+  private async synchronizeClock(): Promise<void> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wallStart = Date.now();
+    const start = performance.now();
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => { reject(new Error("Binance clock synchronization timed out")); controller.abort(); }, 5_000);
+    });
+    try {
+      const response = await Promise.race([
+        fetchJson<{ serverTime?: unknown }>(`${this.baseUrl}/fapi/v1/time`, { signal: controller.signal }),
+        deadline
+      ]);
+      const elapsed = performance.now() - start;
+      if (!response || typeof response.serverTime !== "number" ||
+          !Number.isSafeInteger(response.serverTime) || response.serverTime <= 0 ||
+          elapsed < 0 || elapsed > Math.min(1_000, this.recvWindowMs / 2) ||
+          Math.abs(Date.now() - wallStart - elapsed) > 100) {
+        throw new Error("Invalid Binance clock sample");
+      }
+      this.clockOffsetMs = response.serverTime - (wallStart + elapsed / 2);
+      this.clockSyncedAt = performance.now();
+      this.clockVersion += 1;
+    } catch {
+      // Do not expose a signed URL, credentials, response body or proxy diagnostic.
+      throw new Error("Binance clock synchronization failed; no further signed request sent");
+    } finally { clearTimeout(timer); }
   }
 
   private async unsignedPrivatePost<T>(path: string): Promise<T> {
