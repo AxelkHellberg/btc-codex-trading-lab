@@ -33,6 +33,7 @@ export class PostgresStateStore {
 
       CREATE TABLE IF NOT EXISTS trades (
         trade_id TEXT PRIMARY KEY,
+        revision BIGINT NOT NULL DEFAULT 0,
         mode TEXT NOT NULL,
         action TEXT NOT NULL,
         side TEXT NOT NULL,
@@ -71,6 +72,7 @@ export class PostgresStateStore {
       );
 
       ALTER TABLE decisions ADD COLUMN IF NOT EXISTS plan JSONB NULL;
+      ALTER TABLE trades ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS remaining_quantity DOUBLE PRECISION NULL;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS tp1 DOUBLE PRECISION NULL;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS tp2 DOUBLE PRECISION NULL;
@@ -128,19 +130,22 @@ export class PostgresStateStore {
   }
 
   public async saveTrade(record: PersistedTradeRecord): Promise<void> {
+    if (!Number.isSafeInteger(record.revision) || record.revision < 1) {
+      throw new Error("Trade revision must be a positive safe integer");
+    }
     await this.pool.query(
       `
         INSERT INTO trades (
           trade_id, mode, action, side, quantity, remaining_quantity, leverage, entry_price, stop_loss,
           take_profit, tp1, tp2, confidence, setup_type, status, entry_reason, exit_reason,
           regime_at_entry, entry_fee, exit_fee, gross_pnl, net_pnl, mfe, mae,
-          opened_at, closed_at, holding_minutes, details, created_at, updated_at
+          opened_at, closed_at, holding_minutes, details, created_at, updated_at, revision
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
           $18, $19, $20, $21, $22, $23, $24,
           to_timestamp($25 / 1000.0), to_timestamp($26 / 1000.0), $27, $28,
-          to_timestamp($29 / 1000.0), to_timestamp($30 / 1000.0)
+          to_timestamp($29 / 1000.0), to_timestamp($30 / 1000.0), $31
         )
         ON CONFLICT (trade_id) DO UPDATE SET
           status = EXCLUDED.status,
@@ -159,7 +164,9 @@ export class PostgresStateStore {
           mae = EXCLUDED.mae,
           closed_at = EXCLUDED.closed_at,
           holding_minutes = EXCLUDED.holding_minutes,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          revision = EXCLUDED.revision
+        WHERE EXCLUDED.revision > trades.revision
       `,
       [
         record.tradeId,
@@ -191,7 +198,8 @@ export class PostgresStateStore {
         record.holdingMinutes ?? null,
         JSON.stringify(record.details),
         record.createdAt,
-        record.updatedAt
+        record.updatedAt,
+        record.revision
       ]
     );
   }

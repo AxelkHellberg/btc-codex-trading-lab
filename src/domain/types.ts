@@ -235,6 +235,8 @@ export interface ExecutionResult {
 }
 
 export interface PersistedTradeRecord {
+  /** Monotonic within one broker-owned trade; independent of wall-clock time. */
+  revision: number;
   tradeId: string;
   mode: TradingMode;
   action: TradeAction;

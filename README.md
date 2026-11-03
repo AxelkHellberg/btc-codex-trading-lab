@@ -171,3 +171,14 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Trade persistence ordering
+
+Paper and live brokers own each randomly identified trade and emit revision 1
+for its opening record, then increment the revision for every partial/final
+execution record. PostgreSQL accepts only a strictly newer revision, so equal
+millisecond timestamps, reordered queries and duplicate delivery cannot roll
+back durable trade state. Existing rows migrate to revision 0; new callers must
+supply a positive safe integer. A future restore/multi-writer implementation
+must restore the revision and preserve a single owner per trade ID. This does
+not retry failed audit writes or repair existing incorrect historical rows.
