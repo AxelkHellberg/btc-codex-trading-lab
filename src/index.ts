@@ -120,17 +120,22 @@ const main = async (): Promise<void> => {
         await eventDetector.handleMarket(snapshot);
         if ("onMarketSnapshot" in broker && typeof broker.onMarketSnapshot === "function") {
           const result = await broker.onMarketSnapshot(snapshot);
-          if ("getState" in broker && typeof broker.getState === "function") {
-            const state = broker.getState();
+          const state = "getState" in broker && typeof broker.getState === "function"
+            ? broker.getState()
+            : result;
+          if (state) {
             runtime.setAccount(state.accountState);
             runtime.setPosition(state.positionState);
           }
           if (result) {
             await executionEngine.handleExecutionResult(result);
-            await store.saveSnapshot("account", result.accountState);
-            await store.saveSnapshot("position", result.positionState);
-            await hotStore.setJson("latest:account", result.accountState, 300);
-            await hotStore.setJson("latest:position", result.positionState, 300);
+          }
+          // Mark-to-market and protective lifecycle updates usually produce no execution.
+          if (state) {
+            await store.saveSnapshot("account", state.accountState);
+            await store.saveSnapshot("position", state.positionState);
+            await hotStore.setJson("latest:account", state.accountState, 300);
+            await hotStore.setJson("latest:position", state.positionState, 300);
           }
         }
       }),

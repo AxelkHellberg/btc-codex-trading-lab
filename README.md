@@ -173,3 +173,16 @@ third-party I/O or wait for unrelated in-flight decision callbacks.
 Shutdown closes admission to decisions, ingestion callbacks and heartbeat work immediately. Producers stop first; already accepted work, including decision failure notification and Redis lock release, settles before Redis or Postgres closes. A callback or heartbeat already in progress may finish its writes but cannot admit a new decision after shutdown begins. Startup rollback uses the same tracked work boundary.
 
 The existing ten-second shutdown deadline still applies: stuck model, notification or I/O work causes a nonzero forced exit. A forced exit cannot guarantee durable completion; stores are not deliberately closed underneath the pending work. This does not cancel third-party I/O or serialize normal market callbacks.
+
+### Paper mark-to-market snapshots
+
+Each successful paper market callback persists the broker's current account
+and position to Postgres snapshots and Redis latest-state keys, including
+ticks that only change equity or arm/tighten protection. Execution-result
+handling runs once when a partial/final fill occurs; it does not create a
+second state-snapshot pair. Snapshot-write failures remain observable and a
+later successful tick refreshes current state. This adds two Postgres rows
+and two Redis writes per paper callback, including flat ticks. It does not
+restore a broker after restart, retry a missing trade audit row, or resolve
+concurrent market callback ordering (#202) or pre-lifecycle write failures
+(#189). Snapshot retention and storage capacity must account for that volume.
