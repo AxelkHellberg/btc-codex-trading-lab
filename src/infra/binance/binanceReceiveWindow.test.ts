@@ -6,7 +6,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.unstubAllEnvs();
 
 describe("signed receive window", () => {
   it.each([undefined, 12000])("signs configured receive window %s for GET, POST and DELETE", async (window) => {
-    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify([{ asset: "USDT", balance: "1000", availableBalance: "1000", crossWalletBalance: "1000", crossUnPnl: "0", updateTime: 1_800_000_000_000 }]), { status: 200 }));
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(url.endsWith("/time") ? { serverTime: Date.now() } : [{ asset: "USDT", balance: "1000", availableBalance: "1000", crossWalletBalance: "1000", crossUnPnl: "0", updateTime: 1_800_000_000_000 }]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     vi.useFakeTimers(); vi.setSystemTime(1_800_000_000_000);
     const client = new BinanceFuturesClient("https://example.test", "wss://example.test/stream", "test-key", "test-secret", { warn: vi.fn() } as never, window);
@@ -14,8 +14,8 @@ describe("signed receive window", () => {
     await client.changeLeverage("BTCUSDT", 2);
     await client.createOrder({ symbol: "BTCUSDT", side: "BUY", recvWindow: 1, timestamp: 1, signature: "wrong" });
     await client.cancelAllOrders("BTCUSDT");
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    for (const [url, init] of fetchMock.mock.calls) {
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    for (const [url, init] of fetchMock.mock.calls.filter(([url]) => !url.endsWith("/time"))) {
       const params = init?.body instanceof URLSearchParams ? new URLSearchParams(init.body) : new URL(url).searchParams;
       const signature = params.get("signature"); params.delete("signature");
       expect(params.get("recvWindow")).toBe(String(window ?? 5000));
