@@ -5,8 +5,19 @@ import type { PersistedDecisionRecord, PersistedTradeRecord } from "../../domain
 
 export class PostgresStateStore {
   private readonly pool: Pool;
+  private retentionPool: Pool | null = null;
+  private retentionTimer: NodeJS.Timeout | null = null;
+  private retentionWork: Promise<void> | null = null;
+  private closing = false;
 
-  public constructor(connectionString: string, private readonly logger: Logger) {
+  public constructor(
+    private readonly connectionString: string,
+    private readonly logger: Logger,
+    private readonly retention?: { marketHours: number; otherHours: number }
+  ) {
+    if (retention && [retention.marketHours, retention.otherHours].some(hours => !Number.isInteger(hours) || hours < 1 || hours > 8760)) {
+      throw new Error("Snapshot retention must be between 1 and 8760 whole hours");
+    }
     this.pool = new Pool({ connectionString });
   }
 
@@ -18,6 +29,8 @@ export class PostgresStateStore {
         payload JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      CREATE INDEX IF NOT EXISTS snapshots_kind_created_id ON snapshots (kind, created_at, id);
 
       CREATE TABLE IF NOT EXISTS decisions (
         decision_id TEXT PRIMARY KEY,
@@ -89,6 +102,38 @@ export class PostgresStateStore {
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS holding_minutes DOUBLE PRECISION NULL;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
+    if (this.retention && !this.retentionTimer && !this.closing) {
+      this.retentionPool = new Pool({ connectionString: this.connectionString, max: 1,
+        connectionTimeoutMillis: 2_000, statement_timeout: 2_000, query_timeout: 3_000 });
+      this.retentionPool.on("error", () => this.logger.warn("Snapshot retention connection failed"));
+      this.scheduleRetention();
+      this.retentionTimer = setInterval(() => this.scheduleRetention(), 60_000);
+      this.retentionTimer.unref();
+    }
+  }
+
+  private scheduleRetention(): void {
+    if (this.closing || this.retentionWork) return;
+    this.retentionWork = this.pruneSnapshots().catch(() => {
+      this.logger.warn("Snapshot retention cleanup failed; will retry on the next interval");
+    }).finally(() => { this.retentionWork = null; });
+  }
+
+  private async pruneSnapshots(): Promise<void> {
+    if (!this.retention || !this.retentionPool) return;
+    // One bounded batch per known runtime kind per minute; never decisions/trades.
+    for (const kind of ["market", "account", "position", "news", "onchain"]) {
+      if (this.closing) return;
+      const hours = kind === "market" ? this.retention.marketHours : this.retention.otherHours;
+      await this.retentionPool.query({
+        text: `DELETE FROM snapshots WHERE id IN (
+          SELECT id FROM snapshots
+          WHERE kind = $1 AND created_at < NOW() - ($2::double precision * INTERVAL '1 hour')
+          ORDER BY created_at, id LIMIT 1000 FOR UPDATE SKIP LOCKED
+        )`,
+        values: [kind, hours]
+      });
+    }
   }
 
   public async saveSnapshot(kind: string, payload: unknown): Promise<void> {
@@ -210,6 +255,12 @@ export class PostgresStateStore {
   }
 
   public async close(): Promise<void> {
+    this.closing = true;
+    if (this.retentionTimer) clearInterval(this.retentionTimer);
+    this.retentionTimer = null;
+    await this.retentionWork;
+    await this.retentionPool?.end();
+    this.retentionPool = null;
     await this.pool.end().catch((error) => {
       this.logger.warn({ error }, "Failed to close Postgres pool");
     });

@@ -21,6 +21,8 @@ const envSchema = z.object({
   BINANCE_API_KEY: z.string().default(""),
   BINANCE_API_SECRET: z.string().default(""),
   POSTGRES_URL: z.string().default("postgres://postgres:postgres@localhost:5432/trader"),
+  SNAPSHOT_MARKET_RETENTION_HOURS: z.coerce.number().finite().int().min(1).max(8760).default(24),
+  SNAPSHOT_OTHER_RETENTION_HOURS: z.coerce.number().finite().int().min(1).max(8760).default(168),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_CHAT_ID: z.string().default(""),
@@ -60,6 +62,7 @@ export interface AppConfig {
     apiSecret: string;
   };
   postgresUrl: string;
+  snapshotRetention: { marketHours: number; otherHours: number };
   redisUrl: string;
   telegram: {
     botToken?: string;
@@ -94,6 +97,7 @@ export const config: AppConfig = {
     apiSecret: parsed.BINANCE_API_SECRET
   },
   postgresUrl: parsed.POSTGRES_URL,
+  snapshotRetention: { marketHours: parsed.SNAPSHOT_MARKET_RETENTION_HOURS, otherHours: parsed.SNAPSHOT_OTHER_RETENTION_HOURS },
   redisUrl: parsed.REDIS_URL,
   telegram: {
     botToken: parsed.TELEGRAM_BOT_TOKEN || undefined,

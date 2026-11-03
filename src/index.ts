@@ -18,7 +18,7 @@ import { StrategyPlanner } from "./services/strategyPlanner.js";
 
 const main = async (): Promise<void> => {
   const runtime = new RuntimeState(config.paperStartingBalance);
-  const store = new PostgresStateStore(config.postgresUrl, logger);
+  const store = new PostgresStateStore(config.postgresUrl, logger, config.snapshotRetention);
   const hotStore = new RedisHotStore(config.redisUrl, logger);
   const notifier = new TelegramNotifier(config.telegram.botToken, config.telegram.chatId, logger);
   const binance = new BinanceFuturesClient(
