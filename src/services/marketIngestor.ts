@@ -57,6 +57,11 @@ export class MarketIngestor {
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private listenKey: string | null = null;
+  private userStreamStopped = false;
+  private userStreamGeneration = 0;
+  private userStreamStarting: Promise<void> | null = null;
+  private userReconnectTimer: NodeJS.Timeout | null = null;
+  private userReconnectDelayMs = 3_000;
   private snapshot: MarketSnapshot | null = null;
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
@@ -70,6 +75,7 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.userStreamStopped = false;
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
@@ -89,9 +95,17 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.userStreamStopped = true;
+    this.userStreamGeneration += 1;
+    this.userStreamStarting = null;
+    if (this.userReconnectTimer) clearTimeout(this.userReconnectTimer);
+    this.userReconnectTimer = null;
     this.client.stopUserStreamKeepalive();
+    const userSocket = this.userSocket;
+    this.userSocket = null;
+    this.listenKey = null;
     this.marketSocket?.close();
-    this.userSocket?.close();
+    userSocket?.close();
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
     }
@@ -114,13 +128,34 @@ export class MarketIngestor {
     });
   }
 
-  private async startUserStream(): Promise<void> {
-    this.listenKey = await this.client.startUserStream();
-    this.client.startUserStreamKeepalive(this.listenKey);
-    this.userSocket = this.client.connectUserStream(this.listenKey, (event) => {
-      void this.handleUserStreamEvent(event);
+  private startUserStream(): Promise<void> {
+    if (this.userStreamStopped) return Promise.resolve();
+    if (this.userStreamStarting) return this.userStreamStarting;
+    const generation = ++this.userStreamGeneration;
+    const starting = this.openUserStream(generation).finally(() => {
+      if (this.userStreamStarting === starting) this.userStreamStarting = null;
     });
-    this.userSocket.on("error", (error: unknown) => {
+    this.userStreamStarting = starting;
+    return starting;
+  }
+
+  private async openUserStream(generation: number): Promise<void> {
+    const listenKey = await this.client.startUserStream();
+    if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
+    const socket = this.client.connectUserStream(listenKey, (event) => {
+      if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
+      if (event && typeof event === "object" && "e" in event && event.e === "listenKeyExpired") {
+        this.recoverUserStream(generation);
+        return;
+      }
+      void this.handleUserStreamEvent(event).catch(() => {
+        this.logger.warn("Failed to process user stream event");
+      });
+    });
+    this.listenKey = listenKey;
+    this.userSocket = socket;
+    socket.on("error", (error: unknown) => {
+      if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
       // Socket messages can include the private listen-key URL. Log only known codes.
       const suppliedCode = error && typeof error === "object" && "code" in error ? error.code : undefined;
       const code = typeof suppliedCode === "string" &&
@@ -128,17 +163,44 @@ export class MarketIngestor {
         ? suppliedCode : "WEBSOCKET_ERROR";
       this.logger.warn({ code }, "User stream websocket transport error");
     });
-    this.userSocket.on("close", () => {
-      this.logger.warn("User stream websocket closed; refreshing listenKey");
-      setTimeout(() => {
-        void this.startUserStream();
-      }, 3_000);
+    socket.on("open", () => {
+      if (generation === this.userStreamGeneration) this.userReconnectDelayMs = 3_000;
     });
+    socket.on("close", () => this.recoverUserStream(generation));
+    this.client.startUserStreamKeepalive(listenKey, () => this.recoverUserStream(generation));
+  }
+
+  private recoverUserStream(generation: number): void {
+    if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
+    this.userStreamGeneration += 1; // Retire every callback belonging to the old stream.
+    const socket = this.userSocket;
+    this.userSocket = null;
+    this.listenKey = null;
+    this.client.stopUserStreamKeepalive();
+    socket?.close();
+    this.logger.warn("User stream unavailable; scheduling listen-key recovery");
+    this.scheduleUserReconnect();
+  }
+
+  private scheduleUserReconnect(): void {
+    if (this.userStreamStopped || this.userReconnectTimer) return;
+    const delay = this.userReconnectDelayMs;
+    this.userReconnectDelayMs = Math.min(delay * 2, 30_000);
+    this.userReconnectTimer = setTimeout(() => {
+      this.userReconnectTimer = null;
+      const attempt = this.startUserStream();
+      const generation = this.userStreamGeneration;
+      void attempt.catch(() => {
+        if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
+        this.logger.warn("User stream recovery failed; retrying with bounded backoff");
+        this.scheduleUserReconnect();
+      });
+    }, delay);
   }
 
   private async handleUserStreamEvent(event: unknown): Promise<void> {
-    const typed = event as { e?: string };
-    if (!typed.e || (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE")) {
+    const typed = event as { e?: string } | null;
+    if (!typed?.e || (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE")) {
       return;
     }
 

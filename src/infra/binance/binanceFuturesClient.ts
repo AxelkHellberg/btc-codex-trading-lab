@@ -233,11 +233,12 @@ export class BinanceFuturesClient {
     return response.listenKey;
   }
 
-  public startUserStreamKeepalive(listenKey: string): void {
+  public startUserStreamKeepalive(listenKey: string, onFailure?: () => void): void {
     this.stopUserStreamKeepalive();
     this.userStreamKeepaliveTimer = setInterval(() => {
-      void this.unsignedPrivatePut("/fapi/v1/listenKey", { listenKey }).catch((error) => {
-        this.logger.warn({ error }, "Failed to keepalive Binance listenKey");
+      void this.unsignedPrivatePut("/fapi/v1/listenKey", { listenKey }).catch(() => {
+        this.logger.warn("Failed to keepalive Binance user stream");
+        onFailure?.();
       });
     }, 50 * 60_000);
   }
