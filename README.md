@@ -155,3 +155,16 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### User-stream recovery
+
+An active `listenKeyExpired` event, socket close, or keepalive failure retires that
+user connection and schedules one replacement. Recovery delays increase from three
+seconds to a maximum of thirty seconds until a socket opens successfully. Failures
+are observed and logged without private keys or upstream error messages. Obsolete
+socket events and late key responses cannot reopen a stream after stop.
+
+Recovery requests a new usable key and stops the old local keepalive. It does not
+explicitly invalidate old keys on the exchange; remote key cleanup remains separate.
+Supplemental REST polling remains available during recovery. Tests use fake sockets
+and mocked REST methods; this behavior has not been exercised against a live exchange.

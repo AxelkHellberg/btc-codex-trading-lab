@@ -36,7 +36,7 @@ async function start() {
     startUserStreamKeepalive: vi.fn(),
     stopUserStreamKeepalive: vi.fn(),
     connectUserStream: vi.fn(() => {
-      const socket = new EventEmitter();
+      const socket = Object.assign(new EventEmitter(), { close: vi.fn() });
       sockets.push(socket);
       return socket;
     })
