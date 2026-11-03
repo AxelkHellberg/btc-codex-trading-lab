@@ -2,6 +2,8 @@ import type { EvaluationTrigger, MarketSnapshot, NewsEvent, OnchainSnapshot } fr
 
 export class EventDetector {
   private readonly lastTriggered = new Map<string, number>();
+  private readonly pendingStartupTriggers = new Map<EvaluationTrigger["reason"], EvaluationTrigger>();
+  private startupFlush: Promise<void> | null = null;
 
   public constructor(
     private readonly onTrigger: (trigger: EvaluationTrigger) => Promise<void> | void,
@@ -9,6 +11,7 @@ export class EventDetector {
   ) {}
 
   public async handleMarket(snapshot: MarketSnapshot): Promise<void> {
+    await this.flushStartupTriggers();
     if (Math.abs(snapshot.priceChangePct1m) >= 0.15 || Math.abs(snapshot.priceChangePct5m) >= 0.35) {
       await this.emit({
         reason: "market_breakout",
@@ -75,7 +78,28 @@ export class EventDetector {
     });
   }
 
+  private flushStartupTriggers(): Promise<void> {
+    if (!this.getLatestMarket?.()) return Promise.resolve();
+    if (this.startupFlush) return this.startupFlush;
+    const flush = (async () => {
+      for (const [reason, trigger] of this.pendingStartupTriggers) {
+        await this.emit(trigger);
+        if (this.pendingStartupTriggers.get(reason) === trigger) this.pendingStartupTriggers.delete(reason);
+      }
+    })().finally(() => { if (this.startupFlush === flush) this.startupFlush = null; });
+    this.startupFlush = flush;
+    return flush;
+  }
+
   private async emit(trigger: EvaluationTrigger): Promise<void> {
+    const startupCatalyst = trigger.reason === "news_relevant" || trigger.reason === "macro_relevant" ||
+      trigger.reason === "onchain_shift";
+    if (startupCatalyst && this.getLatestMarket && !this.getLatestMarket()) {
+      // Keep only the newest trigger of each of the three catalyst kinds. A
+      // missing first market snapshot must not consume the dispatch cooldown.
+      this.pendingStartupTriggers.set(trigger.reason, trigger);
+      return;
+    }
     const cooldownMs = trigger.reason === "minute_recheck" ? 50_000 : 20_000;
     const previousLast = this.lastTriggered.get(trigger.reason);
     const last = previousLast ?? 0;

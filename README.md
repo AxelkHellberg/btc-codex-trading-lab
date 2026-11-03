@@ -141,3 +141,17 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+
+### Startup catalysts
+
+When a market-state provider is configured, EventDetector keeps the newest pending
+news, macro and on-chain trigger until the first market callback can build a decision
+context. This is a bounded in-memory buffer of at most three triggers, not durable
+replay across process restarts. No cooldown is consumed while market data is absent.
+The first market callback flushes pending catalysts before its own market triggers;
+concurrent market callbacks share that flush. Dispatch failures remain pending for
+the next market callback, using the existing retry-after-failure behavior.
+
+This does not change the decision-loop busy-lock acknowledgement contract or restore
+persisted state. Those remain separate concerns.
