@@ -168,3 +168,7 @@ Recovery requests a new usable key and stops the old local keepalive. It does no
 explicitly invalidate old keys on the exchange; remote key cleanup remains separate.
 Supplemental REST polling remains available during recovery. Tests use fake sockets
 and mocked REST methods; this behavior has not been exercised against a live exchange.
+
+### Market stream recovery
+
+A market connection that delivers no frames for 30 seconds is terminated and replaced. Supplemental REST success does not reset this transport deadline. Recovery delays grow from 3 to 30 seconds and reset after a stream message; retired connection events cannot replace or publish over the current connection. Shutdown clears both the watchdog and pending recovery. This transport policy does not establish quote freshness or repair missing historical candles.
