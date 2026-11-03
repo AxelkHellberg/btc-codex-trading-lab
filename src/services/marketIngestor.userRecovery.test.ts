@@ -103,7 +103,7 @@ describe("user-stream recovery", () => {
     expect(x.client.connectUserStream).toHaveBeenCalledTimes(2);
     x.callbacks.onAccount.mockRejectedValueOnce(new Error("secret-account"));
     x.messages[1]!({ e: "ORDER_TRADE_UPDATE" }); await vi.advanceTimersByTimeAsync(0);
-    expect(x.logger.warn).toHaveBeenCalledWith("Failed to process user stream event");
+    expect(x.logger.warn).toHaveBeenCalledWith({ component: "account", eventType: "ORDER_TRADE_UPDATE", stage: "callback" }, "Failed to reconcile user stream component");
     expect(JSON.stringify(x.logger.warn.mock.calls)).not.toContain("secret-account");
     await x.ingestor.stop();
   });
