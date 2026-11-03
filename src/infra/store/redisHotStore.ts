@@ -34,6 +34,10 @@ export class RedisHotStore {
     }
   }
 
+  public async checkHealth(): Promise<void> {
+    if (await this.redis.ping() !== "PONG") throw new Error("Redis readiness probe failed");
+  }
+
   public async close(): Promise<void> {
     await this.redis.quit().catch((error: unknown) => {
       this.logger.warn({ error }, "Failed to close Redis connection");
