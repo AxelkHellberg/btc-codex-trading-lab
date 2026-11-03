@@ -57,6 +57,7 @@ export class MarketIngestor {
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private listenKey: string | null = null;
+  private userRefreshBatch: { generation: number; dirty: boolean; eventType: string; work: Promise<void> } | null = null;
   private userStreamStopped = false;
   private userStreamGeneration = 0;
   private userStreamStarting: Promise<void> | null = null;
@@ -66,6 +67,8 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private userRefreshSequence = 0;
+  private readonly deliveredUserRefresh = new Map<string, number>();
 
   public constructor(
     private readonly config: AppConfig,
@@ -198,18 +201,63 @@ export class MarketIngestor {
     }, delay);
   }
 
-  private async handleUserStreamEvent(event: unknown): Promise<void> {
-    const typed = event as { e?: string } | null;
-    if (!typed?.e || (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE")) {
-      return;
+  private handleUserStreamEvent(event: unknown): Promise<void> {
+    if (this.userStreamStopped || event === null || typeof event !== "object") return Promise.resolve();
+    const typed = event as { e?: string };
+    if (typed.e !== "ACCOUNT_UPDATE" && typed.e !== "ORDER_TRADE_UPDATE") return Promise.resolve();
+    const current = this.userRefreshBatch;
+    if (current && current.generation === this.userStreamGeneration) {
+      current.dirty = true;
+      current.eventType = typed.e;
+      return current.work;
     }
+    const batch = { generation: this.userStreamGeneration, dirty: true, eventType: typed.e, work: Promise.resolve() };
+    this.userRefreshBatch = batch;
+    batch.work = this.drainUserRefreshes(batch).finally(() => {
+      if (this.userRefreshBatch === batch) {
+        this.userRefreshBatch = null;
+        // An event may arrive after the drain resolves but before this finalizer.
+        if (batch.dirty && !this.userStreamStopped && batch.generation === this.userStreamGeneration) {
+          return this.handleUserStreamEvent({ e: batch.eventType });
+        }
+      }
+    });
+    return batch.work;
+  }
 
-    const [account, position] = await Promise.all([
-      this.client.getBalanceState(),
-      this.client.getPositionState(this.config.symbol)
+  private async drainUserRefreshes(batch: { generation: number; dirty: boolean; eventType: string }): Promise<void> {
+    while (batch.dirty && !this.userStreamStopped && batch.generation === this.userStreamGeneration) {
+      batch.dirty = false;
+      await this.refreshUserState(batch.eventType, batch.generation);
+    }
+  }
+
+  private async refreshUserState(eventType: string, generation: number): Promise<void> {
+    const sequence = ++this.userRefreshSequence;
+    const reconcile = async <T>(
+      component: "account" | "position",
+      read: () => Promise<T>,
+      deliver: (value: T) => Promise<void> | void
+    ): Promise<void> => {
+      let stage = "read";
+      try {
+        const value = await read();
+        if (this.userStreamStopped || generation !== this.userStreamGeneration ||
+            sequence < (this.deliveredUserRefresh.get(component) ?? 0)) {
+          return;
+        }
+        this.deliveredUserRefresh.set(component, sequence);
+        stage = "callback";
+        await deliver(value);
+      } catch {
+        // Upstream errors may contain signed URLs or account data.
+        this.logger.warn({ component, eventType, stage }, "Failed to reconcile user stream component");
+      }
+    };
+    await Promise.all([
+      reconcile("account", () => this.client.getBalanceState(), (account) => this.callbacks.onAccount(account)),
+      reconcile("position", () => this.client.getPositionState(this.config.symbol), (position) => this.callbacks.onPosition(position))
     ]);
-    await this.callbacks.onAccount(account);
-    await this.callbacks.onPosition(position);
   }
 
   private async handleMarketMessage(raw: string): Promise<void> {

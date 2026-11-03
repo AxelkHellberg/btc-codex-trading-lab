@@ -168,3 +168,18 @@ Recovery requests a new usable key and stops the old local keepalive. It does no
 explicitly invalidate old keys on the exchange; remote key cleanup remains separate.
 Supplemental REST polling remains available during recovery. Tests use fake sockets
 and mocked REST methods; this behavior has not been exercised against a live exchange.
+
+### User-stream reconciliation bursts
+
+Account/order events share one active balance/position reconciliation per user
+stream generation. Events arriving during reads or callback delivery set one
+dirty flag, rather than opening another pair of requests; after that batch
+settles, one follow-up reads the latest state. Further events may request one
+more follow-up. Each component keeps independent error handling and delivery.
+Retired streams and shutdown prevent late reads from publishing or scheduling
+follow-up work. Already-running callbacks and requests cannot be cancelled.
+
+This bounds concurrent event-driven work and pending queue size, not total
+request rate under sustained events. Minute-level supplemental reconciliation
+is separate; cross-source ordering remains tracked in #196. No incremental
+WebSocket-account parser or exchange rate-limit policy is introduced.
