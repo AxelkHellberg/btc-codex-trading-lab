@@ -13,6 +13,7 @@ import { MarketIngestor } from "./services/marketIngestor.js";
 import { NewsIngestor } from "./services/newsIngestor.js";
 import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
+import { RuntimeWork } from "./services/runtimeWork.js";
 import { RuntimeState } from "./services/runtimeState.js";
 import { ServiceLifecycle } from "./services/serviceLifecycle.js";
 import { StartupInterrupted, StartupShutdown } from "./services/startupShutdown.js";
@@ -23,10 +24,13 @@ const main = async (): Promise<void> => {
   const store = new PostgresStateStore(config.postgresUrl, logger);
   const hotStore = new RedisHotStore(config.redisUrl, logger);
   const lifecycle = new ServiceLifecycle();
+  const work = new RuntimeWork();
   lifecycle.own("Postgres", () => store.close());
   lifecycle.own("Redis", () => hotStore.close());
+  lifecycle.own("In-flight runtime work", () => work.drain());
   let cleanupReported = false;
   const cleanup = async (): Promise<void> => {
+    work.close();
     const failures = await lifecycle.stop();
     if (!cleanupReported) {
       cleanupReported = true;
@@ -41,8 +45,9 @@ const main = async (): Promise<void> => {
     code => process.exit(code),
     error => logger.error({ error }, "Shutdown failed")
   );
-  process.on("SIGINT", shutdown.request);
-  process.on("SIGTERM", shutdown.request);
+  const requestShutdown = () => { work.close(); shutdown.request(); };
+  process.on("SIGINT", requestShutdown);
+  process.on("SIGTERM", requestShutdown);
   let startupFailed = false;
 
   try {
@@ -79,7 +84,7 @@ const main = async (): Promise<void> => {
       priority: number;
       details: string;
       triggeredAt: number;
-    }): Promise<void> => {
+    }): Promise<void> => work.run(async () => {
       const lockToken = `${process.pid}-${trigger.reason}-${trigger.triggeredAt}`;
       const acquired = await hotStore.acquireLock("decision-loop", lockToken, 55_000);
       if (!acquired) {
@@ -103,12 +108,12 @@ const main = async (): Promise<void> => {
       } finally {
         await hotStore.releaseLock("decision-loop", lockToken);
       }
-    };
+    });
 
     const eventDetector = new EventDetector(evaluateTrigger, () => runtime.getMarket());
 
     const marketIngestor = new MarketIngestor(config, binance, logger, {
-      onMarket: async (snapshot) => {
+      onMarket: (snapshot) => work.run(async () => {
         runtime.setMarket(snapshot);
         await store.saveSnapshot("market", snapshot);
         await hotStore.setJson("latest:market", snapshot, 300);
@@ -128,32 +133,32 @@ const main = async (): Promise<void> => {
             await hotStore.setJson("latest:position", result.positionState, 300);
           }
         }
-      },
-      onAccount: async (account) => {
+      }),
+      onAccount: (account) => work.run(async () => {
         runtime.setAccount(account);
         await store.saveSnapshot("account", account);
         await hotStore.setJson("latest:account", account, 300);
-      },
-      onPosition: async (position) => {
+      }),
+      onPosition: (position) => work.run(async () => {
         runtime.setPosition(position);
         await store.saveSnapshot("position", position);
         await hotStore.setJson("latest:position", position, 300);
-      }
+      })
     });
 
-    const newsIngestor = new NewsIngestor(config, logger, async (events) => {
+    const newsIngestor = new NewsIngestor(config, logger, (events) => work.run(async () => {
       runtime.pushNews(events);
       await store.saveSnapshot("news", events);
       await hotStore.setJson("latest:news", events, 300);
       await eventDetector.handleNews(events);
-    });
+    }));
 
-    const onchainIngestor = new OnchainIngestor(config, logger, async (snapshot) => {
+    const onchainIngestor = new OnchainIngestor(config, logger, (snapshot) => work.run(async () => {
       runtime.setOnchain(snapshot);
       await store.saveSnapshot("onchain", snapshot);
       await hotStore.setJson("latest:onchain", snapshot, 300);
       await eventDetector.handleOnchain(snapshot);
-    });
+    }));
 
     const httpServer = await createHttpServer(runtime, config.port, async () => {
       await evaluateTrigger({
@@ -174,14 +179,14 @@ const main = async (): Promise<void> => {
     ], shutdown.checkpoint);
 
     const heartbeatTimer = setInterval(() => {
-      void (async () => {
+      void work.run(async () => {
         await store.heartbeat("btc-codex-trader", {
           mode: config.tradingMode,
           symbol: config.symbol,
           ts: Date.now()
         });
         await eventDetector.heartbeat();
-      })();
+      }).catch(error => logger.error({ error }, "Heartbeat failed"));
     }, 60_000);
 
     lifecycle.own("Heartbeat", () => clearInterval(heartbeatTimer));

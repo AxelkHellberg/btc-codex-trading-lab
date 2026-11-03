@@ -167,3 +167,9 @@ message is emitted for cancelled startup. Resources returned by a delayed HTTP
 factory are registered before cancellation is checked. This uses the partial
 startup ownership contract from #360; it does not add cancellation support inside
 third-party I/O or wait for unrelated in-flight decision callbacks.
+
+### Shutdown work draining
+
+Shutdown closes admission to decisions, ingestion callbacks and heartbeat work immediately. Producers stop first; already accepted work, including decision failure notification and Redis lock release, settles before Redis or Postgres closes. A callback or heartbeat already in progress may finish its writes but cannot admit a new decision after shutdown begins. Startup rollback uses the same tracked work boundary.
+
+The existing ten-second shutdown deadline still applies: stuck model, notification or I/O work causes a nonzero forced exit. A forced exit cannot guarantee durable completion; stores are not deliberately closed underneath the pending work. This does not cancel third-party I/O or serialize normal market callbacks.
