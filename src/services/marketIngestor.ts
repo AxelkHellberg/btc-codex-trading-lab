@@ -54,6 +54,11 @@ type CombinedStreamMessage = {
 
 export class MarketIngestor {
   private marketSocket: WebSocket | null = null;
+  private marketStopped = false;
+  private marketGeneration = 0;
+  private marketWatchdog: NodeJS.Timeout | null = null;
+  private marketReconnectTimer: NodeJS.Timeout | null = null;
+  private marketReconnectDelayMs = 3_000;
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private listenKey: string | null = null;
@@ -75,6 +80,7 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.marketStopped = false;
     this.userStreamStopped = false;
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
@@ -95,6 +101,13 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.marketStopped = true;
+    this.marketGeneration += 1;
+    this.clearMarketWatchdog();
+    if (this.marketReconnectTimer) clearTimeout(this.marketReconnectTimer);
+    this.marketReconnectTimer = null;
+    const marketSocket = this.marketSocket;
+    this.marketSocket = null;
     this.userStreamStopped = true;
     this.userStreamGeneration += 1;
     this.userStreamStarting = null;
@@ -104,7 +117,7 @@ export class MarketIngestor {
     const userSocket = this.userSocket;
     this.userSocket = null;
     this.listenKey = null;
-    this.marketSocket?.close();
+    marketSocket?.close();
     userSocket?.close();
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
@@ -112,20 +125,66 @@ export class MarketIngestor {
   }
 
   private connectMarketSocket(): void {
+    if (this.marketStopped || this.marketSocket) return;
+    const generation = ++this.marketGeneration;
     const url = this.client.getCombinedMarketStreamUrl(this.config.symbol);
-    this.marketSocket = new WebSocket(url);
-    this.marketSocket.on("message", (raw) => {
+    const socket = new WebSocket(url);
+    this.marketSocket = socket;
+    this.armMarketWatchdog(generation);
+    socket.on("message", (raw) => {
+      if (this.marketStopped || generation !== this.marketGeneration) return;
+      this.marketReconnectDelayMs = 3_000;
+      this.armMarketWatchdog(generation);
       void this.handleMarketMessage(raw.toString()).catch((error) => {
         this.logger.warn({ error }, "Failed to process market message");
       });
     });
-    this.marketSocket.on("close", () => {
-      this.logger.warn("Market websocket closed; reconnecting in 3s");
-      setTimeout(() => this.connectMarketSocket(), 3_000);
+    socket.on("close", () => this.recoverMarketSocket(generation));
+    socket.on("error", () => {
+      if (this.marketStopped || generation !== this.marketGeneration) return;
+      this.logger.warn("Market websocket transport error");
+      this.recoverMarketSocket(generation);
     });
-    this.marketSocket.on("error", (error) => {
-      this.logger.warn({ error }, "Market websocket error");
-    });
+  }
+
+  private clearMarketWatchdog(): void {
+    if (this.marketWatchdog) clearTimeout(this.marketWatchdog);
+    this.marketWatchdog = null;
+  }
+
+  private armMarketWatchdog(generation: number): void {
+    this.clearMarketWatchdog();
+    // Track stream frames independently of successful supplemental REST polls.
+    this.marketWatchdog = setTimeout(() => {
+      if (this.marketStopped || generation !== this.marketGeneration) return;
+      this.logger.warn("Market websocket silent for 30s; replacing connection");
+      this.recoverMarketSocket(generation);
+    }, 30_000);
+  }
+
+  private recoverMarketSocket(generation: number): void {
+    if (this.marketStopped || generation !== this.marketGeneration) return;
+    this.marketGeneration += 1;
+    this.clearMarketWatchdog();
+    const socket = this.marketSocket;
+    this.marketSocket = null;
+    // Retire handlers before termination, including a synchronous close event.
+    socket?.terminate();
+    this.scheduleMarketReconnect();
+  }
+
+  private scheduleMarketReconnect(): void {
+    if (this.marketStopped || this.marketReconnectTimer) return;
+    const delay = this.marketReconnectDelayMs;
+    this.marketReconnectDelayMs = Math.min(delay * 2, 30_000);
+    this.marketReconnectTimer = setTimeout(() => {
+      this.marketReconnectTimer = null;
+      try { this.connectMarketSocket(); }
+      catch {
+        this.logger.warn("Market websocket recovery failed; retrying with bounded backoff");
+        this.scheduleMarketReconnect();
+      }
+    }, delay);
   }
 
   private startUserStream(): Promise<void> {
