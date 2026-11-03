@@ -189,3 +189,13 @@ third-party I/O or wait for unrelated in-flight decision callbacks.
 Shutdown closes admission to decisions, ingestion callbacks and heartbeat work immediately. Producers stop first; already accepted work, including decision failure notification and Redis lock release, settles before Redis or Postgres closes. A callback or heartbeat already in progress may finish its writes but cannot admit a new decision after shutdown begins. Startup rollback uses the same tracked work boundary.
 
 The existing ten-second shutdown deadline still applies: stuck model, notification or I/O work causes a nonzero forced exit. A forced exit cannot guarantee durable completion; stores are not deliberately closed underneath the pending work. This does not cancel third-party I/O or serialize normal market callbacks.
+### Trade persistence ordering
+
+Paper and live brokers own each randomly identified trade and emit revision 1
+for its opening record, then increment the revision for every partial/final
+execution record. PostgreSQL accepts only a strictly newer revision, so equal
+millisecond timestamps, reordered queries and duplicate delivery cannot roll
+back durable trade state. Existing rows migrate to revision 0; new callers must
+supply a positive safe integer. A future restore/multi-writer implementation
+must restore the revision and preserve a single owner per trade ID. This does
+not retry failed audit writes or repair existing incorrect historical rows.
