@@ -63,7 +63,7 @@ suite("PostgresStateStore real database contract", () => {
   });
   it("upserts a trade from open to closed with JSON, PnL and nullable timestamps", async () => {
     const record: PersistedTradeRecord = {
-      tradeId: "trade-1", mode: "paper", action: "LONG", side: "BUY", quantity: 0.02,
+      revision: 1, tradeId: "trade-1", mode: "paper", action: "LONG", side: "BUY", quantity: 0.02,
       remainingQuantity: 0.02, leverage: 2, entryPrice: 100_000, stopLoss: 99_000,
       tp1: 101_000, tp2: 102_000, confidence: 0.8, status: "open", entryReason: "contract",
       entryFee: 1, exitFee: 0, grossPnl: 0, netPnl: -1, mfe: 0, mae: 0,
@@ -74,13 +74,28 @@ suite("PostgresStateStore real database contract", () => {
     const opened = (await query.query("SELECT * FROM trades WHERE trade_id=$1", [record.tradeId])).rows[0];
     expect(opened.closed_at).toBeNull(); expect(opened.holding_minutes).toBeNull();
     expect(opened.take_profit).toBeNull(); expect(opened.exit_reason).toBeNull();
-    await store.saveTrade({ ...record, status: "closed", remainingQuantity: 0, closedAt: record.openedAt + 60_000, holdingMinutes: 1, updatedAt: record.updatedAt + 60_000, grossPnl: 20, netPnl: 18, exitFee: 1, exitReason: "take_profit", details: { stage: "closed", nested: [1, null] } });
+    await store.saveTrade({ ...record, revision: 2, status: "closed", remainingQuantity: 0, closedAt: record.openedAt + 60_000, holdingMinutes: 1, updatedAt: record.updatedAt + 60_000, grossPnl: 20, netPnl: 18, exitFee: 1, exitReason: "take_profit", details: { stage: "closed", nested: [1, null] } });
     const { rows } = await query.query("SELECT * FROM trades WHERE trade_id=$1", [record.tradeId]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "closed", remaining_quantity: 0, entry_price: 100_000, gross_pnl: 20, net_pnl: 18, entry_fee: 1, exit_fee: 1, holding_minutes: 1, exit_reason: "take_profit", details: { stage: "closed", nested: [1, null] } });
     expect(rows[0].opened_at.getTime()).toBe(record.openedAt);
     expect(rows[0].closed_at.getTime()).toBe(record.openedAt + 60_000);
     expect(rows[0].updated_at.getTime()).toBe(record.updatedAt + 60_000);
+  });
+  it.each([false, true])("preserves newer trade revisions with reversed delivery and equal timestamps (%s)", async equalTime => {
+    const opened: PersistedTradeRecord = { revision: 1, tradeId: `ordered-${equalTime}`, mode: "paper", action: "LONG", side: "BUY", quantity: 0.02, remainingQuantity: 0.02, leverage: 2, entryPrice: 100_000, confidence: 0.8, status: "open", entryReason: "test", entryFee: 1, exitFee: 0, grossPnl: 0, netPnl: -1, mfe: 0, mae: 0, openedAt: 100_000, createdAt: 100_000, updatedAt: 100_000, details: { stage: "open" } };
+    const partial = { ...opened, revision: 2, status: "partial", remainingQuantity: 0.01, exitFee: 1, netPnl: 8, updatedAt: equalTime ? opened.updatedAt : 110_000, details: { stage: "partial" } };
+    const closed = { ...partial, revision: 3, status: "closed", remainingQuantity: 0, exitFee: 2, grossPnl: 20, netPnl: 17, closedAt: 120_000, exitReason: "target", updatedAt: equalTime ? opened.updatedAt : 120_000, details: { stage: "closed" } };
+    // Normal forward writes, then the earlier records applied after the close.
+    for (const record of [opened, partial, closed, partial, opened, closed]) await store.saveTrade(record);
+    const row = (await query.query("SELECT * FROM trades WHERE trade_id=$1", [opened.tradeId])).rows[0];
+    expect(row).toMatchObject({ revision: "3", status: "closed", remaining_quantity: 0, exit_fee: 2, gross_pnl: 20, net_pnl: 17, exit_reason: "target", details: { stage: "closed" } });
+    expect(row.closed_at.getTime()).toBe(closed.closedAt);
+    expect(row.updated_at.getTime()).toBe(closed.updatedAt);
+    // Out-of-order insertion also converges when close reaches SQL first.
+    await store.saveTrade({ ...closed, tradeId: `${opened.tradeId}-reverse` });
+    await store.saveTrade({ ...opened, tradeId: `${opened.tradeId}-reverse` });
+    expect((await query.query("SELECT status, revision FROM trades WHERE trade_id=$1", [`${opened.tradeId}-reverse`])).rows[0]).toEqual({ status: "closed", revision: "3" });
   });
   it("updates one heartbeat row per service", async () => {
     await store.heartbeat("contract-service", { sequence: 1 });

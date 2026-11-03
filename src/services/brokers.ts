@@ -165,6 +165,7 @@ export class PaperBroker implements Broker {
     };
 
     this.activeTrade = {
+      revision: 1,
       tradeId,
       mode: this.config.tradingMode,
       action: plan.action,
@@ -412,6 +413,7 @@ export class PaperBroker implements Broker {
     const closed = remainingQuantity <= 0.0000001;
     this.activeTrade = {
       ...this.activeTrade,
+      revision: this.activeTrade.revision + 1,
       remainingQuantity: Math.max(0, remainingQuantity),
       stopLoss: this.position.stopLoss,
       takeProfit: this.position.takeProfit,
@@ -560,6 +562,7 @@ export class LiveBroker implements Broker {
       ]);
       const now = Date.now();
       this.activeTrade = {
+        revision: 1,
         tradeId,
         mode: this.config.tradingMode,
         action: plan.action,
@@ -625,6 +628,7 @@ export class LiveBroker implements Broker {
         ? undefined
         : {
             ...this.activeTrade,
+            revision: this.activeTrade.revision + 1,
             remainingQuantity: positionState.quantity,
             status: positionState.quantity > 0 ? "partial" : "closed",
             exitReason: plan.action === "REDUCE" ? "decision_reduce" : "decision",
