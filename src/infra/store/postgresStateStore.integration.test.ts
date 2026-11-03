@@ -14,6 +14,7 @@ suite("PostgresStateStore real database contract", () => {
   let admin: Pool;
   let query: Pool;
   let store: PostgresStateStore;
+  let scopedConnectionString: string;
   beforeAll(async () => {
     const url = new URL(connectionString!);
     if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
@@ -22,7 +23,8 @@ suite("PostgresStateStore real database contract", () => {
     admin = new Pool({ connectionString, connectionTimeoutMillis: 2_000, query_timeout: 5_000 });
     await admin.query(`CREATE SCHEMA ${schema}`);
     url.searchParams.set("options", `-c search_path=${schema}`);
-    query = new Pool({ connectionString: url.toString(), connectionTimeoutMillis: 2_000, query_timeout: 5_000 });
+    scopedConnectionString = url.toString();
+    query = new Pool({ connectionString: scopedConnectionString, connectionTimeoutMillis: 2_000, query_timeout: 5_000 });
     store = new PostgresStateStore(url.toString(), pino({ enabled: false }));
     await store.init();
   }, 10_000);
@@ -81,6 +83,20 @@ suite("PostgresStateStore real database contract", () => {
     expect(rows[0].opened_at.getTime()).toBe(record.openedAt);
     expect(rows[0].closed_at.getTime()).toBe(record.openedAt + 60_000);
     expect(rows[0].updated_at.getTime()).toBe(record.updatedAt + 60_000);
+  });
+  it("prunes only an indexed bounded batch of expired known snapshots", async () => {
+    await query.query("DELETE FROM snapshots");
+    await query.query("INSERT INTO snapshots(kind,payload,created_at) SELECT 'market', '{}'::jsonb, NOW() - INTERVAL '25 hours' FROM generate_series(1,2505)");
+    await query.query("INSERT INTO snapshots(kind,payload,created_at) VALUES ('account','{}',NOW()-INTERVAL '169 hours'), ('market','{}',NOW()-INTERVAL '23 hours'), ('account','{}',NOW()-INTERVAL '25 hours'), ('unknown','{}',NOW()-INTERVAL '999 hours')");
+    const cleanupStore = new PostgresStateStore(scopedConnectionString, pino({ enabled: false }), { marketHours: 24, otherHours: 168 });
+    try {
+      await cleanupStore.init();
+      await (cleanupStore as unknown as { retentionWork: Promise<void> }).retentionWork;
+      const counts = (await query.query("SELECT kind,count(*)::int AS count FROM snapshots GROUP BY kind ORDER BY kind")).rows;
+      expect(counts).toEqual([{ kind: "account", count: 1 },{ kind: "market", count: 1506 },{ kind: "unknown", count: 1 }]);
+      expect((await query.query("SELECT count(*)::int AS count FROM trades")).rows[0].count).toBe(1);
+      expect((await query.query("SELECT indexdef FROM pg_indexes WHERE schemaname=$1 AND indexname='snapshots_kind_created_id'", [schema])).rows[0].indexdef).toContain("(kind, created_at, id)");
+    } finally { await cleanupStore.close(); }
   });
   it("updates one heartbeat row per service", async () => {
     await store.heartbeat("contract-service", { sequence: 1 });

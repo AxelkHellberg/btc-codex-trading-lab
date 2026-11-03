@@ -171,3 +171,25 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Snapshot retention
+
+The runtime prunes `snapshots` independently of ingestion, once at startup and
+once per minute, with at most 1,000 old rows per known kind per pass. Market
+snapshots default to 24 hours; account, position, news and on-chain snapshots
+default to 168 hours. Configure `SNAPSHOT_MARKET_RETENTION_HOURS` and
+`SNAPSHOT_OTHER_RETENTION_HOURS` with whole hours from 1 to 8760. Rows exactly
+at the age boundary remain until a later pass. Unknown kinds, decisions,
+trades and heartbeats are retained. Retention deletes historical snapshots.
+
+A `(kind, created_at, id)` index supports each bounded batch. Cleanup uses one
+separate connection, a 2-second connection/server statement deadline, and a
+3-second client query deadline; passes never overlap. Failures log a warning
+and retry next minute without delaying ingestion. Shutdown clears the timer
+and waits for its current bounded work before closing the cleanup pool.
+
+This is an age policy, not a hard row/disk cap: a backlog shrinks by at most
+1,000 rows per kind per minute, so sustained expired traffic above that rate
+requires operational capacity planning. The first schema initialization builds
+the index normally and may take a lock on an existing large table; apply it in
+an operator-selected maintenance window before starting that deployment.
