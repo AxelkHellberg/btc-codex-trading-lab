@@ -1,5 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 
+import type { ReadinessResult } from "../services/readiness.js";
+
 import type { RuntimeState } from "../services/runtimeState.js";
 
 export type HttpServer = {
@@ -11,7 +13,8 @@ export type HttpServer = {
 export async function createHttpServer(
   runtime: RuntimeState,
   port: number,
-  triggerEvaluation?: () => Promise<void>
+  triggerEvaluation?: () => Promise<void>,
+  readiness?: () => Promise<ReadinessResult>
 ): Promise<HttpServer> {
   const app = Fastify({ logger: false });
 
@@ -534,6 +537,15 @@ export async function createHttpServer(
     ok: true,
     ts: Date.now()
   }));
+
+  app.get("/readyz", async (_, reply) => {
+    try {
+      const result = readiness ? await readiness() : { ready: false, components: { runtime: "unconfigured" } };
+      return reply.code(result.ready ? 200 : 503).send({ ...result, ts: Date.now() });
+    } catch {
+      return reply.code(503).send({ ready: false, components: { runtime: "unavailable" }, ts: Date.now() });
+    }
+  });
 
   app.get("/", async (_, reply) => {
     reply.type("text/html").send(dashboardHtml);

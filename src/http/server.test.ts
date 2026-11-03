@@ -56,6 +56,7 @@ const decisionRecord = (): PersistedDecisionRecord => ({
   decisionId: "decision-1",
   createdAt: Date.now(),
   approved: true,
+  mode: "paper",
   trigger: trigger(),
   context: {
     market_snapshot: marketSnapshot(),
@@ -110,29 +111,9 @@ const decisionRecord = (): PersistedDecisionRecord => ({
     bias: "LONG",
     confidence: 0.78,
     setup_type: "breakout",
-    take_profit: {
-      type: "partial_ladder",
-      levels: [
-        { price: 101_400, size_pct: 0.5 },
-        { price: 102_100, size_pct: 0.5 }
-      ]
-    },
-    stop_loss: {
-      type: "hard",
-      price: 99_800
-    },
-    leverage: 2,
-    reasoning_summary: "Momentum and open interest align.",
-    key_risks: ["macro reversal"],
-    invalidation: "Lose intraday support",
-    sources: ["market"],
-    order_preference: "MARKET",
-    exit_if: {
-      thesis_invalidated: true,
-      momentum_reversal: true,
-      risk_guardrail_hit: true,
-      time_stop_minutes: 60
-    }
+    invalidation_price: 99_800,
+    holding_horizon_minutes: 60,
+    reasoning_summary: "Momentum and open interest align."
   },
   plan: {
     action: "LONG",
@@ -162,7 +143,9 @@ const decisionRecord = (): PersistedDecisionRecord => ({
 
 const tradeRecord = (): PersistedTradeRecord => ({
   tradeId: "trade-1",
+  mode: "paper",
   createdAt: Date.now(),
+  updatedAt: Date.now(),
   action: "LONG",
   side: "BUY",
   quantity: 0.01,
@@ -172,22 +155,19 @@ const tradeRecord = (): PersistedTradeRecord => ({
   stopLoss: 99_800,
   tp1: 101_400,
   tp2: 102_100,
-  breakEvenTriggerR: 1,
-  trailingTriggerR: 2,
-  trailingOffset: 400,
+  confidence: 0.78,
+  entryReason: "Momentum breakout",
   status: "closed",
   openedAt: Date.now() - 30_000,
   closedAt: Date.now(),
-  exitPrice: 101_400,
   exitReason: "tp1",
   grossPnl: 9,
-  fees: 1,
+  entryFee: 0.5,
+  exitFee: 0.5,
   netPnl: 8,
   mae: -3,
   mfe: 11,
-  details: {
-    message: "Partial ladder completed"
-  }
+  details: { message: "Partial ladder completed" }
 });
 
 async function buildServer(triggerEvaluation?: () => Promise<void>): Promise<HttpServer> {

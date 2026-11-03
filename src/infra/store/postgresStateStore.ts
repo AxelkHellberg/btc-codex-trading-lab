@@ -209,6 +209,10 @@ export class PostgresStateStore {
     );
   }
 
+  public async checkHealth(): Promise<void> {
+    await this.pool.query("SELECT 1");
+  }
+
   public async close(): Promise<void> {
     await this.pool.end().catch((error) => {
       this.logger.warn({ error }, "Failed to close Postgres pool");

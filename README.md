@@ -141,3 +141,22 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+
+### Runtime readiness
+
+`GET /healthz` is a liveness check: HTTP availability alone returns 200.
+Use `GET /readyz` for readiness. It returns 200 with `ready: true` only after
+all startup tasks finish, before shutdown starts, while PostgreSQL responds to
+`SELECT 1`, Redis responds with `PONG`, and the latest aggregate market snapshot
+is no more than 90 seconds old. Missing or future-dated snapshots fail readiness.
+Unavailable components return 503 with fixed status labels; database errors,
+URLs and credentials are not included in the response.
+
+Each dependency check has a one-second response deadline. Concurrent checks share
+one outstanding probe per dependency, including after a timeout, so stalled probes
+are not repeatedly queued. The deadline does not cancel a command on the database
+server. Readiness does not write data, restart services, test exchange permissions,
+or guarantee freshness of each field or transport: a successful supplemental REST
+refresh can update the aggregate timestamp while a WebSocket is silent. Separate
+transport monitoring remains necessary. This endpoint does not authorize live trading.

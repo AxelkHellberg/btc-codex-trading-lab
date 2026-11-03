@@ -13,6 +13,7 @@ import { MarketIngestor } from "./services/marketIngestor.js";
 import { NewsIngestor } from "./services/newsIngestor.js";
 import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
+import { createReadinessCheck } from "./services/readiness.js";
 import { RuntimeState } from "./services/runtimeState.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
 
@@ -139,6 +140,14 @@ const main = async (): Promise<void> => {
     })();
   }, 60_000);
 
+  let startupComplete = false;
+  let stopping = false;
+  const readiness = createReadinessCheck({
+    isRunning: () => startupComplete && !stopping,
+    getMarket: () => runtime.getMarket(),
+    postgres: () => store.checkHealth(),
+    redis: () => hotStore.checkHealth()
+  });
   const httpServer = await createHttpServer(runtime, config.port, async () => {
     await evaluateTrigger({
       reason: "manual_recheck",
@@ -146,10 +155,12 @@ const main = async (): Promise<void> => {
       details: "manual HTTP trigger",
       triggeredAt: Date.now()
     });
-  });
+  }, readiness);
   await Promise.all([httpServer.start(), marketIngestor.start(), newsIngestor.start(), onchainIngestor.start()]);
+  startupComplete = true;
 
   const shutdown = async (): Promise<void> => {
+    stopping = true;
     clearInterval(heartbeatTimer);
     await Promise.allSettled([
       httpServer.stop(),
