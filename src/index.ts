@@ -14,6 +14,7 @@ import { NewsIngestor } from "./services/newsIngestor.js";
 import { OnchainIngestor } from "./services/onchainIngestor.js";
 import { RiskEngine } from "./services/riskEngine.js";
 import { RuntimeState } from "./services/runtimeState.js";
+import { createTriggerEvaluator } from "./services/triggerEvaluator.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
 
 const main = async (): Promise<void> => {
@@ -39,46 +40,12 @@ const main = async (): Promise<void> => {
 
   await store.init();
 
-  const evaluateTrigger = async (trigger: {
-    reason:
-      | "minute_recheck"
-      | "market_breakout"
-      | "open_interest_spike"
-      | "funding_extreme"
-      | "news_relevant"
-      | "macro_relevant"
-      | "onchain_shift"
-      | "manual_recheck";
-    priority: number;
-    details: string;
-    triggeredAt: number;
-  }): Promise<void> => {
-    const lockToken = `${process.pid}-${trigger.reason}-${trigger.triggeredAt}`;
-    const acquired = await hotStore.acquireLock("decision-loop", lockToken, 55_000);
-    if (!acquired) {
-      return;
-    }
+  const evaluateTrigger = createTriggerEvaluator({
+    runtime, hotStore, decisionWorker, planner, riskEngine, executionEngine, notifier, logger,
+    riskPolicy: config.riskPolicy
+  });
 
-    try {
-      const context = runtime.buildDecisionContext(trigger, config.riskPolicy);
-      if (!context) {
-        return;
-      }
-
-      await hotStore.setJson("latest:context", context, 300);
-      const signal = await decisionWorker.decide(context);
-      const planning = planner.plan(context, signal);
-      const evaluation = riskEngine.evaluate(context, planning);
-      await executionEngine.maybeExecute(context, signal, evaluation);
-    } catch (error) {
-      logger.error({ error, trigger }, "Decision loop failed");
-      await notifier.notify(`Decision loop failed: ${String(error)}`);
-    } finally {
-      await hotStore.releaseLock("decision-loop", lockToken);
-    }
-  };
-
-  const eventDetector = new EventDetector(evaluateTrigger, () => runtime.getMarket());
+  const eventDetector = new EventDetector(async (trigger) => { await evaluateTrigger(trigger); }, () => runtime.getMarket());
 
   const marketIngestor = new MarketIngestor(config, binance, logger, {
     onMarket: async (snapshot) => {
@@ -140,7 +107,7 @@ const main = async (): Promise<void> => {
   }, 60_000);
 
   const httpServer = await createHttpServer(runtime, config.port, async () => {
-    await evaluateTrigger({
+    return evaluateTrigger({
       reason: "manual_recheck",
       priority: 3,
       details: "manual HTTP trigger",

@@ -1,11 +1,12 @@
 import Fastify from "fastify";
 
+import type { TriggerEvaluationResult } from "../services/triggerEvaluator.js";
 import type { RuntimeState } from "../services/runtimeState.js";
 
 export async function createHttpServer(
   runtime: RuntimeState,
   port: number,
-  triggerEvaluation?: () => Promise<void>
+  triggerEvaluation?: () => Promise<TriggerEvaluationResult>
 ): Promise<{
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -508,8 +509,15 @@ export async function createHttpServer(
         button.disabled = true;
         button.textContent = "Triggering...";
         try {
-          await fetch("/trigger", { method: "POST" });
+          const response = await fetch("/trigger", { method: "POST" });
+          const result = await response.json();
+          if (!response.ok || !result.ok) {
+            document.getElementById("heartbeat").textContent = "Trigger: " + (result.status || "failed");
+            return;
+          }
           await refresh();
+        } catch {
+          document.getElementById("heartbeat").textContent = "Trigger request failed";
         } finally {
           button.disabled = false;
           button.textContent = "Trigger Now";
@@ -546,16 +554,18 @@ export async function createHttpServer(
     recentTrades: runtime.getRecentTrades().slice(0, 25)
   }));
 
-  app.post("/trigger", async () => {
+  app.post("/trigger", async (_, reply) => {
     if (!triggerEvaluation) {
-      return {
-        ok: false
-      };
+      return reply.code(503).send({ ok: false, status: "unavailable" });
     }
-    await triggerEvaluation();
-    return {
-      ok: true
-    };
+    try {
+      const result = await triggerEvaluation();
+      const statusCode = result.status === "completed" ? 200
+        : result.status === "busy" ? 409 : result.status === "no_market" ? 503 : 500;
+      return reply.code(statusCode).send({ ok: result.status === "completed", status: result.status });
+    } catch {
+      return reply.code(500).send({ ok: false, status: "failed" });
+    }
   });
 
   return {
