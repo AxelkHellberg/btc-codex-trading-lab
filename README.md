@@ -181,7 +181,7 @@ follow-up work. Already-running callbacks and requests cannot be cancelled.
 
 This bounds concurrent event-driven work and pending queue size, not total
 request rate under sustained events. Minute-level supplemental reconciliation
-is separate; cross-source ordering remains tracked in #196. No incremental
+is separate; shared cross-source ordering is described below. No incremental
 WebSocket-account parser or exchange rate-limit policy is introduced.
 
 ### Shared private-state reconciliation order
