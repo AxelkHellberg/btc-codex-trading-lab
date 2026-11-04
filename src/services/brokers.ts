@@ -127,6 +127,7 @@ export class PaperBroker implements Broker {
     const now = Date.now();
 
     this.account.walletBalance -= fee;
+    this.account.dailyPnl -= fee;
     this.account.availableBalance = Math.max(0, this.account.walletBalance - (fillPrice * plan.quantity) / plan.leverage);
     this.account.openOrders = 2;
 
