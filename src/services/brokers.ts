@@ -655,28 +655,4 @@ export class LiveBroker implements Broker {
       raw: closeOrder
     };
   }
-
-  public getState(): { accountState: AccountState; positionState: PositionState } {
-    return {
-      accountState: {
-        equity: 0,
-        walletBalance: 0,
-        availableBalance: 0,
-        dailyPnl: 0,
-        weeklyDrawdown: 0,
-        consecutiveLosses: 0,
-        openOrders: 0,
-        updatedAt: Date.now()
-      },
-      positionState: {
-        side: "flat",
-        quantity: 0,
-        entryPrice: 0,
-        markPrice: 0,
-        leverage: 1,
-        unrealizedPnl: 0,
-        realizedPnl: 0
-      }
-    };
-  }
 }
