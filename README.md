@@ -159,3 +159,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Historical candle stop policy
+
+The replay samples pre-existing paper stops against each trade-price candle's high/low before evaluating its close. A crossed stop fills at the stop, or at the adverse candle open when the bar gaps through it, followed by the configured paper slippage and fees. If the same bar contains both a stop and a target, the pre-existing stop wins; OHLC does not identify the actual order of touches. This path bypasses target/break-even/trailing advancement before that stop, so ambiguous bars cannot earn a target fill first. Exit timestamps use the replay bar close because the intrabar event time is unknown.
+
+Only positions opened before the bar are eligible for its extremes. New entries are evaluated at the bar close and are not exposed retroactively to that bar's earlier prices. Without a crossed pre-existing stop, target and lifecycle handling remains sampled at the close. Newly raised stops are checked against subsequent bars, not retroactively against earlier extremes. Real-time market ticks keep their existing execution path. This is a conservative trade-price approximation, not exchange mark-price execution parity or a complete intrabar fill simulation.

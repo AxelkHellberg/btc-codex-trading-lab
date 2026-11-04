@@ -203,7 +203,7 @@ const main = async (): Promise<void> => {
       timestamp: current.closeTime,
       filters
     };
-    const paperState = await broker.onMarketSnapshot?.(marketSnapshot);
+    const paperState = await broker.onHistoricalCandle(marketSnapshot, current);
     if (paperState?.accepted && paperState.tradeRecord?.status === "closed") {
       exits += 1;
       const netPnl = paperState.tradeRecord.netPnl;

@@ -15,7 +15,7 @@ vi.mock("../infra/binance/binanceFuturesClient.js", () => ({
 }));
 vi.mock("../services/brokers.js", () => ({
   PaperBroker: class {
-    async onMarketSnapshot() { return null; }
+    async onHistoricalCandle() { return null; }
     getState() {
       return {
         accountState: seen.account,

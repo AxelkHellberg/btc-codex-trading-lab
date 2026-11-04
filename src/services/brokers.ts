@@ -86,6 +86,46 @@ export class PaperBroker implements Broker {
       return null;
     }
 
+    return this.closePosition(snapshot, exitReason);
+  }
+
+  /** Trade-price OHLC stop sampling for replay; real-time ticks keep their contract. */
+  public async onHistoricalCandle(
+    snapshot: MarketSnapshot,
+    candle: { openTime: number; open: number; high: number; low: number }
+  ): Promise<ExecutionResult | null> {
+    const prices = [candle.open, candle.high, candle.low, snapshot.markPrice];
+    if (
+      !prices.every((price) => Number.isFinite(price) && price > 0) ||
+      !Number.isFinite(candle.openTime) || candle.openTime > snapshot.timestamp ||
+      candle.low > Math.min(candle.open, snapshot.markPrice) ||
+      candle.high < Math.max(candle.open, snapshot.markPrice)
+    ) {
+      throw new Error("Invalid historical candle for paper execution");
+    }
+
+    const position = this.position;
+    const stop = position.stopLoss;
+    const existedBeforeBar = position.openedAt !== undefined && position.openedAt < candle.openTime;
+    const stopCrossed = stop !== undefined && (
+      (position.side === "long" && candle.low <= stop) ||
+      (position.side === "short" && candle.high >= stop)
+    );
+    if (existedBeforeBar && stopCrossed) {
+      // OHLC cannot reveal target/stop order. Resolve the pre-existing stop
+      // first, with adverse opening gaps and normal paper slippage/fees.
+      const price = position.side === "long" ? Math.min(candle.open, stop!) : Math.max(candle.open, stop!);
+      const stopSnapshot = {
+        ...snapshot, markPrice: price, indexPrice: price, lastPrice: price,
+        bestBid: price, bestAsk: price
+      };
+      this.markToMarket(price);
+      return this.closePosition(stopSnapshot, this.resolveExitReason(stopSnapshot)!);
+    }
+    return this.onMarketSnapshot(snapshot);
+  }
+
+  private closePosition(snapshot: MarketSnapshot, exitReason: string): ExecutionResult {
     return this.closeOrReducePosition(
       {
         action: "CLOSE",
