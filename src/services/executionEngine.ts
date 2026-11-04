@@ -63,6 +63,10 @@ export class ExecutionEngine {
     this.runtime.setAccount(result.accountState);
     this.runtime.setPosition(result.positionState);
 
+    if (!result.accepted) {
+      this.logger.warn({ broker: result.broker, tradeId: result.tradeId, message: result.message }, "Broker rejected execution");
+    }
+
     if (result.tradeRecord) {
       this.runtime.upsertTrade(result.tradeRecord);
       await this.store.saveTrade(result.tradeRecord);

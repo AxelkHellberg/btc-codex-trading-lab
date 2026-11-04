@@ -59,6 +59,26 @@ export class PaperBroker implements Broker {
       return this.openPosition(plan, context.market_snapshot);
     }
 
+    // This check and the paper mutation below contain no await. Protective
+    // ticks may keep running while the model or decision persistence waits.
+    const expected = context.position_state;
+    if (
+      expected.sourceTradeId !== this.position.sourceTradeId ||
+      expected.openedAt !== this.position.openedAt ||
+      expected.side !== this.position.side ||
+      expected.quantity !== this.position.quantity ||
+      expected.entryPrice !== this.position.entryPrice
+    ) {
+      return {
+        tradeId: this.position.sourceTradeId ?? expected.sourceTradeId ?? randomUUID(),
+        accepted: false,
+        broker: this.name,
+        message: "Paper exit rejected: position changed since decision context; evaluate again",
+        positionState: { ...this.position },
+        accountState: { ...this.account }
+      };
+    }
+
     return this.closeOrReducePosition(
       plan,
       context.market_snapshot,
