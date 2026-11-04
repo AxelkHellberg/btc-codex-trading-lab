@@ -183,3 +183,7 @@ This bounds concurrent event-driven work and pending queue size, not total
 request rate under sustained events. Minute-level supplemental reconciliation
 is separate; cross-source ordering remains tracked in #196. No incremental
 WebSocket-account parser or exchange rate-limit policy is introduced.
+
+### Shared private-state reconciliation order
+
+Supplemental and user-stream refreshes share a monotonically increasing request sequence. Each component accepts successful reads in that request order: an older result cannot overwrite a newer accepted account or position. Account and position remain independent, so a failed newer account read does not discard an available older account or block a newer position. Each component's callbacks also run serially, preventing an older slow persistence callback from finishing after a newer callback. Queued delivery checks its generation again before invocation; stop/reconnect retires its owned work. A running callback or network request cannot be cancelled, and a stalled callback blocks later delivery for that component. Failed callbacks are logged and do not poison subsequent delivery. This is local request ordering, not an exchange snapshot version or an atomic account/position transaction; direct execution-result writers and independent processes are outside this ingestor contract.

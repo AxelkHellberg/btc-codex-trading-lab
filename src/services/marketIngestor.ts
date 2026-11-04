@@ -67,8 +67,9 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
-  private userRefreshSequence = 0;
-  private readonly deliveredUserRefresh = new Map<string, number>();
+  private stateRefreshSequence = 0;
+  private readonly acceptedStateRefresh = new Map<string, number>();
+  private readonly stateDelivery = new Map<string, Promise<void>>();
   private supplementalPending: Promise<void> | null = null;
   private supplementalGeneration = 0;
   private stopped = false;
@@ -244,7 +245,7 @@ export class MarketIngestor {
   }
 
   private async refreshUserState(eventType: string, generation: number): Promise<void> {
-    const sequence = ++this.userRefreshSequence;
+    const sequence = ++this.stateRefreshSequence;
     const reconcile = async <T>(
       component: "account" | "position",
       read: () => Promise<T>,
@@ -253,13 +254,10 @@ export class MarketIngestor {
       let stage = "read";
       try {
         const value = await read();
-        if (this.userStreamStopped || generation !== this.userStreamGeneration ||
-            sequence < (this.deliveredUserRefresh.get(component) ?? 0)) {
-          return;
-        }
-        this.deliveredUserRefresh.set(component, sequence);
         stage = "callback";
-        await deliver(value);
+        await this.deliverState(component, sequence,
+          () => !this.userStreamStopped && generation === this.userStreamGeneration,
+          () => deliver(value));
       } catch {
         // Upstream errors may contain signed URLs or account data.
         this.logger.warn({ component, eventType, stage }, "Failed to reconcile user stream component");
@@ -341,6 +339,7 @@ export class MarketIngestor {
 
   private async readSupplemental(generation: number): Promise<void> {
     const current = (): boolean => !this.stopped && generation === this.supplementalGeneration;
+    const sequence = ++this.stateRefreshSequence;
     const component = async <T,>(name: string, read: () => Promise<T>, deliver: (value: T) => Promise<void>): Promise<void> => {
       let value: T;
       try {
@@ -387,15 +386,40 @@ export class MarketIngestor {
     });
     const privateReads = this.config.tradingMode === "live" ? [
       component("account", () => this.client.getBalanceState(), async (account) => {
-        await this.deliverSupplementalCallback("onAccount", () => this.callbacks.onAccount(account));
+        await this.deliverState("account", sequence, current,
+          () => this.deliverSupplementalCallback("onAccount", () => this.callbacks.onAccount(account)));
       }),
       component("position", () => this.client.getPositionState(this.config.symbol), async (position) => {
-        await this.deliverSupplementalCallback("onPosition", () => this.callbacks.onPosition(position));
+        await this.deliverState("position", sequence, current,
+          () => this.deliverSupplementalCallback("onPosition", () => this.callbacks.onPosition(position)));
       })
     ] : [];
     // Each component publishes when ready; a stalled or rejected peer cannot
     // discard usable results. The batch remains single-flight until all settle.
     await Promise.all([market, ...privateReads]);
+  }
+
+  /** Share ordering across both REST sources and serialize each component's sinks. */
+  private deliverState(
+    component: "account" | "position",
+    sequence: number,
+    current: () => boolean,
+    deliver: () => Promise<void> | void
+  ): Promise<void> {
+    if (!current() || sequence < (this.acceptedStateRefresh.get(component) ?? 0)) {
+      return Promise.resolve();
+    }
+    this.acceptedStateRefresh.set(component, sequence);
+    const previous = this.stateDelivery.get(component) ?? Promise.resolve();
+    const pending = previous.then(async () => {
+      // A newer successful read or lifecycle transition may retire queued work.
+      if (current() && sequence >= (this.acceptedStateRefresh.get(component) ?? 0)) {
+        await deliver();
+      }
+    });
+    // A rejected callback remains observable to its caller, but cannot poison the queue.
+    this.stateDelivery.set(component, pending.catch(() => {}));
+    return pending;
   }
 
   private async deliverSupplementalCallback(
