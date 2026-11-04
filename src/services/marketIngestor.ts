@@ -73,6 +73,10 @@ export class MarketIngestor {
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    this.snapshot.inputTimestamps = {
+      ...(this.snapshot.inputTimestamps ?? { mark: 0, quote: 0, candle: 0 }),
+      candle: this.candleHistory.at(-1)?.closeTime ?? 0
+    };
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
     this.lastOpenInterest = this.snapshot.openInterest;
     this.filtersLoaded = true;
@@ -158,17 +162,20 @@ export class MarketIngestor {
       next.fundingRate = Number(data.r);
       next.nextFundingTime = Number(data.T);
       next.timestamp = data.E;
+      next.inputTimestamps = { ...(next.inputTimestamps ?? { mark: 0, quote: 0, candle: 0 }), mark: data.E };
     } else if ("b" in data && "a" in data) {
       next.bestBid = Number(data.b);
       next.bestAsk = Number(data.a);
       next.spreadBps =
         next.bestBid > 0 ? ((next.bestAsk - next.bestBid) / next.bestBid) * 10_000 : 0;
       next.timestamp = data.E;
+      next.inputTimestamps = { ...(next.inputTimestamps ?? { mark: 0, quote: 0, candle: 0 }), quote: data.E };
     } else if ("k" in data) {
       const close = Number(data.k.c);
       next.lastPrice = close;
       next.volume1m = Number(data.k.v);
       next.timestamp = data.E;
+      next.inputTimestamps = { ...(next.inputTimestamps ?? { mark: 0, quote: 0, candle: 0 }), candle: data.E };
       if (data.k.x) {
         this.candleHistory.push({
           close,
@@ -199,6 +206,7 @@ export class MarketIngestor {
       return;
     }
 
+    const observedAt = Date.now();
     try {
       const [mark, openInterest, ratio, account, position] = await Promise.all([
         this.client.getMarkPrice(this.config.symbol),
@@ -214,6 +222,7 @@ export class MarketIngestor {
 
       const next: MarketSnapshot = {
         ...this.snapshot,
+        inputTimestamps: { ...(this.snapshot.inputTimestamps ?? { mark: 0, quote: 0, candle: 0 }), mark: observedAt },
         markPrice: mark.markPrice,
         indexPrice: mark.indexPrice,
         fundingRate: mark.fundingRate,

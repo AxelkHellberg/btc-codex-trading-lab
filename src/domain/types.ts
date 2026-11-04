@@ -54,6 +54,8 @@ export interface MarketSnapshot {
   trendStrengthPct: number;
   volumeAcceleration: number;
   timestamp: number;
+  // Missing observation times fail closed for new entries; exits remain available.
+  inputTimestamps?: { mark: number; quote: number; candle: number };
   filters?: SymbolFilters;
 }
 

@@ -12,6 +12,7 @@ import type {
 import type { TelegramNotifier } from "../infra/notifier/telegramNotifier.js";
 import type { PostgresStateStore } from "../infra/store/postgresStateStore.js";
 import type { Broker } from "./brokers.js";
+import { entryFreshnessReasons, isEntry } from "./entryFreshness.js";
 import type { RuntimeState } from "./runtimeState.js";
 
 export class ExecutionEngine {
@@ -49,12 +50,26 @@ export class ExecutionEngine {
     signal: StrategySignal,
     evaluation: RiskEvaluation
   ): Promise<void> {
+    if (evaluation.approved && isEntry(evaluation.executionPlan)) {
+      const reasons = entryFreshnessReasons(context.market_snapshot, Date.now());
+      if (reasons.length > 0) {
+        evaluation = { ...evaluation, approved: false, reasons: [...new Set([...evaluation.reasons, ...reasons])] };
+      }
+    }
     await this.persistDecision(context, signal, evaluation);
     if (!evaluation.approved || !evaluation.executionPlan) {
       this.logger.info({ reasons: evaluation.reasons }, "Trade decision rejected by risk engine");
       return;
     }
 
+    // Auditing is asynchronous: an earlier approval must not authorize an expired entry.
+    if (isEntry(evaluation.executionPlan)) {
+      const reasons = entryFreshnessReasons(context.market_snapshot, Date.now());
+      if (reasons.length > 0) {
+        this.logger.warn({ reasons }, "Entry expired before broker submission");
+        return;
+      }
+    }
     const result = await this.broker.execute(evaluation.executionPlan, context);
     await this.handleExecutionResult(result, evaluation.executionPlan.reasoningSummary);
   }

@@ -198,6 +198,7 @@ const main = async (): Promise<void> => {
       trendStrengthPct: emaMedium !== 0 ? ((emaFast - emaMedium) / emaMedium) * 100 : 0,
       volumeAcceleration: volumeAcceleration(window),
       timestamp: current.closeTime,
+      inputTimestamps: { mark: current.closeTime, quote: current.closeTime, candle: current.closeTime },
       filters
     };
     const paperState = await broker.onMarketSnapshot?.(marketSnapshot);
@@ -297,7 +298,7 @@ const main = async (): Promise<void> => {
     if (context.position_state.side === "flat") {
       const signal = decideFromHistory(window);
       const planning = planner.plan(context, signal);
-      const evaluation = riskEngine.evaluate(context, planning);
+      const evaluation = riskEngine.evaluate(context, planning, current.closeTime);
       if (evaluation.approved && evaluation.executionPlan) {
         const open = await broker.execute(evaluation.executionPlan, context);
         if (open.accepted) {
