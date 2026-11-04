@@ -77,13 +77,12 @@ describe("trade persistence retries", () => {
     const write = vi.fn(async (_: PersistedTradeRecord) => {});
     write.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
     const persistence = queue(write);
-    const first = persistence.save(record(1)).catch(() => {});
-    const next = persistence.save({ ...record(2), status: "closed" }).catch(() => {});
+    const first = persistence.save(record(1));
+    const next = persistence.save({ ...record(2), status: "closed" });
     expect(write).toHaveBeenCalledOnce();
     resolve();
     await Promise.all([first, next]);
-    expect(persistence.status().pending).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
+    expect(persistence.status().pending).toBe(0);
     expect(write).toHaveBeenCalledTimes(2);
     expect(write.mock.calls[1]![0].revision).toBe(2);
     expect(persistence.status().pending).toBe(0);

@@ -38,9 +38,14 @@ export class TradePersistenceQueue {
         record: structuredClone(record), failures: 0, retryAt: Date.now(), queuedAt: current?.queuedAt ?? Date.now()
       });
     }
-    await this.flush();
-    const remaining = this.pending.get(record.tradeId);
-    if (remaining) throw remaining.error ?? new Error("Trade persistence pending retry");
+    // A concurrent save may have joined a batch whose snapshot predates its
+    // enqueue. Wait for the next serialized batch instead of reporting an
+    // ordinary buffered write as a storage failure.
+    while (this.pending.has(record.tradeId)) {
+      const remaining = this.pending.get(record.tradeId)!;
+      if (remaining.failures && remaining.retryAt > Date.now()) throw remaining.error;
+      await this.flush();
+    }
   }
 
   private flush(force = false): Promise<void> {
