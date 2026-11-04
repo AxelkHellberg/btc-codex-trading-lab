@@ -12,7 +12,7 @@ import { RuntimeState } from "./runtimeState.js";
 function fixture(accepted = true) {
   const runtime = new RuntimeState(10_000);
   const record: PersistedTradeRecord = {
-    tradeId: "fixture-trade", mode: "paper", action: "LONG", side: "BUY", quantity: 1,
+    tradeId: "fixture-trade", revision: 1, mode: "paper", action: "LONG", side: "BUY", quantity: 1,
     remainingQuantity: 1, leverage: 1, entryPrice: 100, confidence: 0.8, status: "open",
     entryReason: "fixture", entryFee: 0, exitFee: 0, grossPnl: 0, netPnl: 0, mfe: 0,
     mae: 0, openedAt: 1, details: { reasoning: "Recorded reasoning" }, createdAt: 1, updatedAt: 1

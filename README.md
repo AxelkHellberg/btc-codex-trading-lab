@@ -198,4 +198,23 @@ millisecond timestamps, reordered queries and duplicate delivery cannot roll
 back durable trade state. Existing rows migrate to revision 0; new callers must
 supply a positive safe integer. A future restore/multi-writer implementation
 must restore the revision and preserve a single owner per trade ID. This does
-not retry failed audit writes or repair existing incorrect historical rows.
+not repair existing incorrect historical rows.
+
+### Failed trade writes
+
+The runtime retains the latest pending revision per trade and retries only the
+PostgreSQL audit write with exponential backoff from one to thirty seconds.
+Broker orders, balance mutations and Telegram notifications are never replayed.
+`/status.tradePersistence` exposes the pending count, oldest enqueue time and
+whether a write batch is running; structured logs report failures and recovery.
+Duplicate pending deliveries are coalesced, and the revision guard from #371
+prevents delayed/duplicate records from overwriting newer durable state.
+
+Shutdown stops producers, drains accepted runtime work, stops the retry timer,
+waits for active writes and attempts each remaining record once before stores
+close. Unpersisted records stay in memory and produce an explicit teardown
+failure. The existing ten-second forced shutdown deadline still applies.
+This is an in-memory repair queue, not a durable outbox: crashes or forced exit
+can lose pending writes. Prolonged outages retain one record per affected trade
+without a discard limit, so memory may grow; operators must monitor pending
+counts and restore storage. Notification delivery remains best effort.

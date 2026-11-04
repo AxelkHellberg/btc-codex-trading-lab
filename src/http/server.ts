@@ -1,11 +1,13 @@
 import Fastify from "fastify";
 
+import type { TradePersistenceStatus } from "../services/tradePersistenceQueue.js";
 import type { RuntimeState } from "../services/runtimeState.js";
 
 export async function createHttpServer(
   runtime: RuntimeState,
   port: number,
-  triggerEvaluation?: () => Promise<void>
+  triggerEvaluation?: () => Promise<void>,
+  tradePersistenceStatus?: () => TradePersistenceStatus
 ): Promise<{
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -537,6 +539,7 @@ export async function createHttpServer(
   });
 
   app.get("/status", async () => ({
+    tradePersistence: tradePersistenceStatus?.() ?? null,
     market: runtime.getMarket(),
     onchain: runtime.getOnchain(),
     account: runtime.getAccount(),

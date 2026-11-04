@@ -17,6 +17,7 @@ import { RuntimeWork } from "./services/runtimeWork.js";
 import { RuntimeState } from "./services/runtimeState.js";
 import { ServiceLifecycle } from "./services/serviceLifecycle.js";
 import { StartupInterrupted, StartupShutdown } from "./services/startupShutdown.js";
+import { TradePersistenceQueue } from "./services/tradePersistenceQueue.js";
 import { StrategyPlanner } from "./services/strategyPlanner.js";
 
 const main = async (): Promise<void> => {
@@ -27,7 +28,6 @@ const main = async (): Promise<void> => {
   const work = new RuntimeWork();
   lifecycle.own("Postgres", () => store.close());
   lifecycle.own("Redis", () => hotStore.close());
-  lifecycle.own("In-flight runtime work", () => work.drain());
   let cleanupReported = false;
   const cleanup = async (): Promise<void> => {
     work.close();
@@ -63,7 +63,10 @@ const main = async (): Promise<void> => {
       config.tradingMode === "live"
         ? new LiveBroker(config, binance, logger)
         : new PaperBroker(config);
-    const executionEngine = new ExecutionEngine(config, runtime, store, notifier, broker, logger);
+    const tradePersistence = new TradePersistenceQueue(record => store.saveTrade(record), logger);
+    lifecycle.own("Trade persistence", () => tradePersistence.stop());
+    lifecycle.own("In-flight runtime work", () => work.drain());
+    const executionEngine = new ExecutionEngine(config, runtime, store, notifier, broker, logger, tradePersistence);
     const decisionWorker = new CodexDecisionWorker(config, logger);
     const planner = new StrategyPlanner(config);
     const riskEngine = new RiskEngine(config);
@@ -167,7 +170,7 @@ const main = async (): Promise<void> => {
         details: "manual HTTP trigger",
         triggeredAt: Date.now()
       });
-    });
+    }, () => tradePersistence.status());
     lifecycle.own("HTTP server", () => httpServer.stop());
     shutdown.checkpoint();
     await httpServer.start();

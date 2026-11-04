@@ -12,6 +12,7 @@ import type {
 import type { TelegramNotifier } from "../infra/notifier/telegramNotifier.js";
 import type { PostgresStateStore } from "../infra/store/postgresStateStore.js";
 import type { Broker } from "./brokers.js";
+import type { TradePersistenceQueue } from "./tradePersistenceQueue.js";
 import type { RuntimeState } from "./runtimeState.js";
 
 export class ExecutionEngine {
@@ -21,7 +22,8 @@ export class ExecutionEngine {
     private readonly store: PostgresStateStore,
     private readonly notifier: TelegramNotifier,
     private readonly broker: Broker,
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    private readonly tradePersistence?: Pick<TradePersistenceQueue, "save">
   ) {}
 
   public async persistDecision(
@@ -67,7 +69,7 @@ export class ExecutionEngine {
     if (result.tradeRecord) {
       this.runtime.upsertTrade(result.tradeRecord);
       try {
-        await this.store.saveTrade(result.tradeRecord);
+        await (this.tradePersistence ? this.tradePersistence.save(result.tradeRecord) : this.store.saveTrade(result.tradeRecord));
       } catch (error) {
         failures.push(error);
         this.logger.error(
