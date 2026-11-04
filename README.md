@@ -132,6 +132,22 @@ Linux VM template:
 
 ## CI
 
+The Postgres persistence contract suite is opt-in and needs a disposable local
+PostgreSQL database. For example:
+
+```sh
+docker run --rm -d --name persistence-contract -e POSTGRES_PASSWORD=contract -e POSTGRES_DB=contract_test -p 127.0.0.1:55432:5432 postgres:17-alpine
+POSTGRES_TEST_URL=postgres://postgres:contract@127.0.0.1:55432/contract_test npm test -- src/infra/store/postgresStateStore.integration.test.ts
+docker stop persistence-contract
+```
+
+Wait for PostgreSQL to be ready before running the test. It creates and drops
+only its own randomly named schema, checks schema initialization, JSONB and
+timestamp round trips, decision/trade upserts, and heartbeat uniqueness. Remote
+database hosts are rejected. With no `POSTGRES_TEST_URL`, the suite is skipped
+and the ordinary unit tests run without a database. Do not point it at a
+production database.
+
 GitHub Actions runs:
 
 - `npm ci`
@@ -173,3 +189,32 @@ third-party I/O or wait for unrelated in-flight decision callbacks.
 Shutdown closes admission to decisions, ingestion callbacks and heartbeat work immediately. Producers stop first; already accepted work, including decision failure notification and Redis lock release, settles before Redis or Postgres closes. A callback or heartbeat already in progress may finish its writes but cannot admit a new decision after shutdown begins. Startup rollback uses the same tracked work boundary.
 
 The existing ten-second shutdown deadline still applies: stuck model, notification or I/O work causes a nonzero forced exit. A forced exit cannot guarantee durable completion; stores are not deliberately closed underneath the pending work. This does not cancel third-party I/O or serialize normal market callbacks.
+### Trade persistence ordering
+
+Paper and live brokers own each randomly identified trade and emit revision 1
+for its opening record, then increment the revision for every partial/final
+execution record. PostgreSQL accepts only a strictly newer revision, so equal
+millisecond timestamps, reordered queries and duplicate delivery cannot roll
+back durable trade state. Existing rows migrate to revision 0; new callers must
+supply a positive safe integer. A future restore/multi-writer implementation
+must restore the revision and preserve a single owner per trade ID. This does
+not repair existing incorrect historical rows.
+
+### Failed trade writes
+
+The runtime retains the latest pending revision per trade and retries only the
+PostgreSQL audit write with exponential backoff from one to thirty seconds.
+Broker orders, balance mutations and Telegram notifications are never replayed.
+`/status.tradePersistence` exposes the pending count, oldest enqueue time and
+whether a write batch is running; structured logs report failures and recovery.
+Duplicate pending deliveries are coalesced, and the revision guard from #371
+prevents delayed/duplicate records from overwriting newer durable state.
+
+Shutdown stops producers, drains accepted runtime work, stops the retry timer,
+waits for active writes and attempts each remaining record once before stores
+close. Unpersisted records stay in memory and produce an explicit teardown
+failure. The existing ten-second forced shutdown deadline still applies.
+This is an in-memory repair queue, not a durable outbox: crashes or forced exit
+can lose pending writes. Prolonged outages retain one record per affected trade
+without a discard limit, so memory may grow; operators must monitor pending
+counts and restore storage. Notification delivery remains best effort.

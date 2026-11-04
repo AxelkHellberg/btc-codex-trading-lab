@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  init: vi.fn(), pgClose: vi.fn(), redisClose: vi.fn(), acquire: vi.fn(), release: vi.fn(), setJson: vi.fn(),
+  persistenceStop: vi.fn(), init: vi.fn(), pgClose: vi.fn(), redisClose: vi.fn(), acquire: vi.fn(), release: vi.fn(), setJson: vi.fn(),
   saveSnapshot: vi.fn(), heartbeat: vi.fn(), decide: vi.fn(), execute: vi.fn(), notify: vi.fn(),
   marketStop: vi.fn(), httpStop: vi.fn(), handleMarket: vi.fn(), detectorHeartbeat: vi.fn(),
   info: vi.fn(), error: vi.fn(), warn: vi.fn(), callbacks: {} as any,
@@ -27,6 +27,7 @@ vi.mock("./infra/binance/binanceFuturesClient.js", () => ({ BinanceFuturesClient
 vi.mock("./infra/notifier/telegramNotifier.js", () => ({ TelegramNotifier: class { notify = mocks.notify; } }));
 vi.mock("./services/codexDecisionWorker.js", () => ({ CodexDecisionWorker: class { decide = mocks.decide; } }));
 vi.mock("./services/brokers.js", () => ({ LiveBroker: class {}, PaperBroker: class {} }));
+vi.mock("./services/tradePersistenceQueue.js", () => ({ TradePersistenceQueue: class { stop = mocks.persistenceStop; status = () => ({ pending: 0 }); } }));
 vi.mock("./services/executionEngine.js", () => ({ ExecutionEngine: class { maybeExecute = mocks.execute; } }));
 vi.mock("./services/strategyPlanner.js", () => ({ StrategyPlanner: class { plan = () => ({}); } }));
 vi.mock("./services/riskEngine.js", () => ({ RiskEngine: class { evaluate = () => ({}); } }));
@@ -46,7 +47,7 @@ let exit: MockInstance<typeof process.exit>;
 beforeEach(() => {
   vi.resetModules(); vi.useFakeTimers(); mocks.signals.clear(); mocks.trigger = undefined;
   for (const value of Object.values(mocks)) if (vi.isMockFunction(value)) value.mockReset();
-  for (const fn of [mocks.init, mocks.pgClose, mocks.redisClose, mocks.release, mocks.setJson, mocks.saveSnapshot,
+  for (const fn of [mocks.persistenceStop, mocks.init, mocks.pgClose, mocks.redisClose, mocks.release, mocks.setJson, mocks.saveSnapshot,
     mocks.heartbeat, mocks.decide, mocks.execute, mocks.notify, mocks.marketStop, mocks.httpStop, mocks.handleMarket]) fn.mockResolvedValue(undefined);
   mocks.acquire.mockResolvedValue(true);
   const original = process.on.bind(process);
@@ -65,6 +66,24 @@ const expectClosed = async () => { await vi.waitFor(() => expect(exit).toHaveBee
   expect(mocks.redisClose).toHaveBeenCalledOnce(); expect(mocks.pgClose).toHaveBeenCalledOnce(); };
 
 describe("runtime shutdown draining", () => {
+  it("waits for accepted execution before stopping audit retries, then closes stores", async () => {
+    const execution = deferred();
+    const retries = deferred();
+    mocks.execute.mockReturnValue(execution.promise);
+    mocks.persistenceStop.mockReturnValue(retries.promise);
+    await start();
+    const trigger = mocks.trigger!();
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
+    stop(); await flush();
+    expect(mocks.persistenceStop).not.toHaveBeenCalled();
+    expectOpenStores();
+    execution.resolve(); await trigger; await flush();
+    expect(mocks.persistenceStop).toHaveBeenCalledOnce();
+    expectOpenStores();
+    retries.resolve(); await expectClosed();
+    expect(mocks.release.mock.invocationCallOrder[0]).toBeLessThan(mocks.persistenceStop.mock.invocationCallOrder[0]!);
+    expect(mocks.persistenceStop.mock.invocationCallOrder[0]).toBeLessThan(mocks.pgClose.mock.invocationCallOrder[0]!);
+  });
   it("finishes an accepted decision and releases its lock before closing stores, refusing later triggers", async () => {
     const decision = deferred(); mocks.decide.mockReturnValue(decision.promise); await start();
     const trigger = mocks.trigger!(); await vi.waitFor(() => expect(mocks.decide).toHaveBeenCalled());
