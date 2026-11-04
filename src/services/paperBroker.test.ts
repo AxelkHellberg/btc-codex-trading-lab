@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { config } from "../config.js";
 import type { DecisionContext, ExecutionPlan } from "../domain/types.js";
+import { RuntimeState } from "./runtimeState.js";
 import { PaperBroker } from "./brokers.js";
 
 const context = (): DecisionContext => ({
@@ -151,5 +152,46 @@ describe("PaperBroker", () => {
     expect(close?.tradeRecord?.status).toBe("closed");
     expect(close?.tradeRecord?.exitReason).toBe("trailing_stop");
     expect(close?.positionState.side).toBe("flat");
+  });
+});
+
+describe("paper entry-fee accounting", () => {
+  const entry = (side: "BUY" | "SELL"): ExecutionPlan => ({
+    action: side === "BUY" ? "LONG" : "SHORT", side, entryType: "MARKET", leverage: 2,
+    quantity: .02, notionalUsd: 2000, entryPrice: 100000, confidence: .8,
+    entryReason: "fee regression", reasoningSummary: "fee regression"
+  });
+  it("charges the opening fee to daily PnL and the runtime loss guard immediately", async () => {
+    const broker = new PaperBroker({ ...config, paperStartingBalance: 10000, takerFeeBps: 100, slippageBps: 0 });
+    const opened = await broker.execute(entry("BUY"), context());
+    expect(opened.accountState.dailyPnl).toBe(-20);
+    expect(opened.accountState.walletBalance).toBe(9980);
+    expect(opened.tradeRecord?.netPnl).toBe(-20);
+    const runtime = new RuntimeState(10000);
+    runtime.setAccount(opened.accountState);
+    expect(runtime.getRiskState({ maxDailyLoss: .001, maxWeeklyDrawdown: 1, cooldownMinutes: 60 }).withinDailyLossLimit).toBe(false);
+  });
+  it.each(["BUY", "SELL"] as const)("counts entry fees once through partial and final %s exits", async (side) => {
+    const broker = new PaperBroker({ ...config, paperStartingBalance: 10000, takerFeeBps: 10, slippageBps: 0 });
+    await broker.execute(entry(side), context());
+    const exitSide = side === "BUY" ? "SELL" : "BUY";
+    const partial = await broker.execute({ ...entry(exitSide), action: "REDUCE", quantity: .01 }, context());
+    expect(partial.accountState.dailyPnl).toBeCloseTo(-3);
+    expect(partial.tradeRecord?.netPnl).toBeCloseTo(-3);
+    const closed = await broker.execute({ ...entry(exitSide), action: "CLOSE", quantity: .01 }, context());
+    expect(closed.accountState.dailyPnl).toBeCloseTo(-4);
+    expect(closed.accountState.dailyPnl).toBeCloseTo(closed.accountState.walletBalance - 10000);
+    expect(closed.accountState.dailyPnl).toBeCloseTo(closed.tradeRecord!.netPnl);
+    const rejected = await broker.execute({ ...entry(exitSide), action: "CLOSE" }, context());
+    expect(rejected.accepted).toBe(false);
+    expect(rejected.accountState.dailyPnl).toBeCloseTo(-4);
+  });
+  it("keeps zero-fee accounting neutral and excludes unrealized marks from daily realized PnL", async () => {
+    const broker = new PaperBroker({ ...config, takerFeeBps: 0, slippageBps: 0 });
+    const opened = await broker.execute(entry("BUY"), context());
+    expect(opened.accountState.dailyPnl).toBe(0);
+    await broker.onMarketSnapshot({ ...context().market_snapshot, markPrice: 100100 });
+    expect(broker.getState().accountState.dailyPnl).toBe(0);
+    expect(broker.getState().positionState.unrealizedPnl).toBeGreaterThan(0);
   });
 });
