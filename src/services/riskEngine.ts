@@ -1,12 +1,13 @@
 import type { AppConfig } from "../config.js";
 import type { DecisionContext, ExecutionPlan, RiskEvaluation, StrategySignal } from "../domain/types.js";
 import { normalizeQuantity, riskRewardRatio } from "../lib/math.js";
+import { entryFreshnessReasons } from "./entryFreshness.js";
 import type { PlanningResult } from "./strategyPlanner.js";
 
 export class RiskEngine {
   public constructor(private readonly config: AppConfig) {}
 
-  public evaluate(context: DecisionContext, planning: PlanningResult): RiskEvaluation {
+  public evaluate(context: DecisionContext, planning: PlanningResult, now = Date.now()): RiskEvaluation {
     const reasons = [...planning.reasons];
     const normalizedSignal = planning.normalizedSignal;
     const executionPlan = planning.plan;
@@ -42,6 +43,7 @@ export class RiskEngine {
       return this.evaluateExit(context, normalizedSignal, executionPlan, reasons);
     }
 
+    reasons.push(...entryFreshnessReasons(context.market_snapshot, now));
     return this.evaluateEntry(context, normalizedSignal, executionPlan, reasons);
   }
 

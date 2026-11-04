@@ -262,6 +262,7 @@ export class BinanceFuturesClient {
   }
 
   public async composeInitialMarketSnapshot(symbol: string, filters?: SymbolFilters): Promise<MarketSnapshot> {
+    const observedAt = Date.now();
     const [mark, openInterest, ratio] = await Promise.all([
       this.getMarkPrice(symbol),
       this.getOpenInterest(symbol),
@@ -295,6 +296,7 @@ export class BinanceFuturesClient {
       trendStrengthPct: 0,
       volumeAcceleration: 0,
       timestamp: Date.now(),
+      inputTimestamps: { mark: observedAt, quote: 0, candle: 0 },
       filters
     };
   }

@@ -33,6 +33,7 @@ const buildContext = (overrides?: Partial<DecisionContext["context_summary"]>): 
     trendStrengthPct: 0.4,
     volumeAcceleration: 1.4,
     timestamp: Date.now(),
+    inputTimestamps: { mark: Date.now(), quote: Date.now(), candle: Date.now() },
     filters: {
       tickSize: 0.1,
       stepSize: 0.001,

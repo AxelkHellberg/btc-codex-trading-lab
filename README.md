@@ -155,3 +155,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Entry input freshness
+
+New LONG/SHORT entries require separate mark-price, bid/ask and candle observations no older than 90 seconds. Missing, invalid or future observation times reject entry. Risk evaluation checks these inputs after model completion; execution checks again before auditing and immediately before calling the broker after the audit write. The live broker checks again before changing leverage and immediately after the leverage response, before submitting the entry order. An approval that expires during auditing is refused with an `Entry expired before broker submission` warning; its earlier audit record remains the pre-submission assessment. A new evaluation with fresh inputs restores eligibility. CLOSE/REDUCE do not inherit this entry-only age restriction.
+
+Market callbacks preserve observation times independently: REST supplemental polls refresh only their mark-price observation, and cannot refresh an unchanged quote or candle. Initial REST marks are not bid/ask observations; entries wait for an actual book-ticker update. Historical replay explicitly evaluates freshness against candle time, not the current clock. This policy bounds observation age, not exchange response correctness, candle-history continuity, account freshness, or network transit or exchange latency after order submission. Leverage may already have changed if its response outlives the freshness limit; the entry is still refused.
