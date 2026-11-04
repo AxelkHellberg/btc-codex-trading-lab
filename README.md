@@ -155,3 +155,7 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Broker state capabilities
+
+Only PaperBroker exposes a synchronous `getState()` snapshot. LiveBroker returns exchange-backed account and position values from asynchronous execution results; ongoing live state is reconciled by the ingestion callbacks. Generic callers must check for `getState` before using it and retain their current state when that capability is absent.
