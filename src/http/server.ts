@@ -408,7 +408,32 @@ export async function createHttpServer(
       const trendClass = (value) => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
       const badgeClass = (action) => {
         const key = String(action || "").toLowerCase();
-        return "badge badge-" + (key || "flat");
+        return "badge badge-" + (["long", "short", "close", "reduce", "flat"].includes(key) ? key : "flat");
+      };
+
+      const textNode = (tag, value, className = "") => {
+        const node = document.createElement(tag);
+        node.textContent = String(value ?? "");
+        node.className = className;
+        return node;
+      };
+      const badge = (value) => textNode("span", value, badgeClass(value));
+      const cell = (value, className = "") => {
+        const node = document.createElement("td");
+        node.className = className;
+        if (value && typeof value === "object") node.append(value);
+        else node.textContent = String(value ?? "");
+        return node;
+      };
+      const renderRows = (id, rows, columns, emptyText) => {
+        if (rows.length === 0) {
+          const emptyCell = cell(emptyText, "small");
+          emptyCell.colSpan = columns;
+          const row = document.createElement("tr");
+          row.append(emptyCell);
+          rows.push(row);
+        }
+        document.getElementById(id).replaceChildren(...rows);
       };
 
       const formatTs = (value) => value ? new Date(value).toLocaleString() : "-";
@@ -426,7 +451,7 @@ export async function createHttpServer(
         setText("winRate", pct.format(data.tradeStats?.winRate || 0), (data.tradeStats?.winRate || 0) >= 0.5 ? "positive" : "neutral");
         setText("expectancy", money.format(data.tradeStats?.expectancy || 0), trendClass(data.tradeStats?.expectancy || 0));
 
-        document.getElementById("posSide").innerHTML = '<span class="' + badgeClass(data.position.side === "long" ? "LONG" : data.position.side === "short" ? "SHORT" : "FLAT") + '">' + data.position.side + '</span>';
+        document.getElementById("posSide").replaceChildren(badge(data.position.side));
         document.getElementById("posQty").textContent = num.format(data.position.quantity);
         document.getElementById("posEntry").textContent = money.format(data.position.entryPrice || 0);
         document.getElementById("posMark").textContent = money.format(data.position.markPrice || 0);
@@ -470,34 +495,33 @@ export async function createHttpServer(
         setText("averageMfe", money.format(data.tradeStats?.averageMfe || 0), "positive", false);
         setText("averageMae", money.format(data.tradeStats?.averageMae || 0), "negative", false);
 
-        document.getElementById("decisionsBody").innerHTML = (data.recentDecisions || []).slice(0, 12).map((item) => {
-          const reasons = (item.reasons || []).join(", ") || "-";
-          return '<tr>' +
-            '<td class="small">' + formatTs(item.createdAt) + '</td>' +
-            '<td><div>' + (item.trigger?.reason || "-") + '</div><div class="small">' + (item.trigger?.details || "") + '</div></td>' +
-            '<td><span class="' + badgeClass(item.signal?.bias) + '">' + (item.signal?.bias || "-") + '</span></td>' +
-            '<td>' + (item.signal?.setup_type || "-") + '</td>' +
-            '<td class="mono">' + num.format(item.signal?.confidence || 0) + '</td>' +
-            '<td>' + (item.approved ? '<span class="positive">yes</span>' : '<span class="negative">no</span>') + '</td>' +
-            '<td class="small">' + reasons + '</td>' +
-            '<td class="reasoning">' + (item.signal?.reasoning_summary || "-") + '</td>' +
-          '</tr>';
-        }).join("") || '<tr><td colspan="8" class="small">No decisions yet</td></tr>';
+        renderRows("decisionsBody", (data.recentDecisions || []).slice(0, 12).map((item) => {
+          const trigger = document.createElement("div");
+          trigger.append(textNode("div", item.trigger?.reason || "-"), textNode("div", item.trigger?.details || "", "small"));
+          const row = document.createElement("tr");
+          row.append(
+            cell(formatTs(item.createdAt), "small"), cell(trigger),
+            cell(badge(item.signal?.bias || "-")), cell(item.signal?.setup_type || "-"),
+            cell(num.format(item.signal?.confidence || 0), "mono"),
+            cell(textNode("span", item.approved ? "yes" : "no", item.approved ? "positive" : "negative")),
+            cell((item.reasons || []).join(", ") || "-", "small"),
+            cell(item.signal?.reasoning_summary || "-", "reasoning")
+          );
+          return row;
+        }), 8, "No decisions yet");
 
-        document.getElementById("tradesBody").innerHTML = (data.recentTrades || []).slice(0, 12).map((item) => {
-          return '<tr>' +
-            '<td class="small">' + formatTs(item.createdAt) + '</td>' +
-            '<td><span class="' + badgeClass(item.action) + '">' + item.action + '</span></td>' +
-            '<td>' + item.side + '</td>' +
-            '<td class="mono">' + num.format(item.remainingQuantity || item.quantity) + ' / ' + num.format(item.quantity) + '</td>' +
-            '<td class="mono">' + money.format(item.entryPrice || 0) + '</td>' +
-            '<td>' + item.status + '</td>' +
-            '<td>' + (item.exitReason || "-") + '</td>' +
-            '<td class="mono ' + trendClass(item.netPnl || 0) + '">' + money.format(item.netPnl || 0) + '</td>' +
-            '<td class="small">' + money.format(item.mfe || 0) + ' / ' + money.format(item.mae || 0) + '</td>' +
-            '<td class="small">' + (item.details?.message || "-") + '</td>' +
-          '</tr>';
-        }).join("") || '<tr><td colspan="10" class="small">No trades yet</td></tr>';
+        renderRows("tradesBody", (data.recentTrades || []).slice(0, 12).map((item) => {
+          const row = document.createElement("tr");
+          row.append(
+            cell(formatTs(item.createdAt), "small"), cell(badge(item.action)), cell(item.side),
+            cell(num.format(item.remainingQuantity || item.quantity) + " / " + num.format(item.quantity), "mono"),
+            cell(money.format(item.entryPrice || 0), "mono"), cell(item.status), cell(item.exitReason || "-"),
+            cell(money.format(item.netPnl || 0), "mono " + trendClass(item.netPnl || 0)),
+            cell(money.format(item.mfe || 0) + " / " + money.format(item.mae || 0), "small"),
+            cell(item.details?.message || "-", "small")
+          );
+          return row;
+        }), 10, "No trades yet");
 
         document.getElementById("exitDistribution").textContent = JSON.stringify(data.tradeStats?.exitDistribution || {}, null, 2);
         document.getElementById("raw").textContent = JSON.stringify(data, null, 2);
