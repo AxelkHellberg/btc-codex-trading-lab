@@ -155,3 +155,7 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Paper decision exits
+
+Paper CLOSE and REDUCE decisions are bound to the position identity, side, quantity and entry price captured in their decision context. If that position changes while the model or decision persistence is pending, the broker rejects the exit with a `position changed` result and the execution engine logs the rejection. A new evaluation must use the current position; no automatic order replay or replan occurs. Protective market ticks continue during these waits. An unchanged explicit CLOSE still closes the position. This local synchronous guard does not establish exchange-side atomicity for live orders.
