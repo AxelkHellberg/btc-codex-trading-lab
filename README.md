@@ -186,3 +186,7 @@ and two Redis writes per paper callback, including flat ticks. It does not
 restore a broker after restart, retry a missing trade audit row, or resolve
 concurrent market callback ordering (#202) or pre-lifecycle write failures
 (#189). Snapshot retention and storage capacity must account for that volume.
+
+### Paper exits during storage failures
+
+Each paper market callback applies the deterministic broker lifecycle and synchronizes in-memory account/position state before awaiting snapshot writes or model triggers. A failed market snapshot write therefore cannot suppress a stop-crossing tick. Every account/position and market sink is attempted independently; any failure still rejects the callback and prevents its decision trigger. Exit-result failures log the trade ID for audit inspection. A fill is never repeated to repair persistence, and later ticks refresh current snapshots without recreating the exit record. Durable trade-audit retries remain separate work: an exit whose audit failed needs reconciliation even after snapshot recovery. This does not serialize all downstream callbacks or guarantee ordering of concurrent database writes.

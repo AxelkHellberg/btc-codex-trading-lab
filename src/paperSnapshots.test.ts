@@ -113,4 +113,55 @@ describe("paper snapshots in the actual entrypoint", () => {
     expect(mocks.setJson).toHaveBeenCalledWith("latest:account", mocks.paper.getState().accountState, 300);
     expect(mocks.handleResult).not.toHaveBeenCalled(); stop(); await expectClosed();
   });
+  it.each(["Postgres", "Redis"])("closes once on a stop-crossing tick despite a %s market write failure", async sink => {
+    await start(); await mocks.paper.execute(plan, { market_snapshot: market });
+    const failure = new Error("market unavailable");
+    if (sink === "Postgres") mocks.saveSnapshot.mockImplementation(async kind => { if (kind === "market") throw failure; });
+    else mocks.setJson.mockImplementation(async key => { if (key === "latest:market") throw failure; });
+    await expect(mocks.callbacks.onMarket({ ...market, markPrice: 98_900 })).rejects.toThrow("market unavailable");
+    expect(mocks.paper.getState().positionState.side).toBe("flat");
+    expect(mocks.runtime.getPosition().side).toBe("flat");
+    expect(mocks.handleResult).toHaveBeenCalledOnce();
+    expect(mocks.saveSnapshot).toHaveBeenCalledWith("position", expect.objectContaining({ side: "flat" }));
+    expect(mocks.handleMarket).not.toHaveBeenCalled();
+    mocks.saveSnapshot.mockResolvedValue(undefined); mocks.setJson.mockResolvedValue(undefined);
+    await mocks.callbacks.onMarket({ ...market, markPrice: 100_500 });
+    expect(mocks.handleResult).toHaveBeenCalledOnce();
+    expect(mocks.handleMarket).toHaveBeenCalledOnce();
+    stop(); await expectClosed();
+  });
+  it("keeps the paper stop effective while a market write is still pending", async () => {
+    await start(); await mocks.paper.execute(plan, { market_snapshot: market });
+    const pendingWrite = deferred();
+    mocks.saveSnapshot.mockImplementation(kind => kind === "market" ? pendingWrite.promise : Promise.resolve());
+    const tick = mocks.callbacks.onMarket({ ...market, markPrice: 98_900 });
+    await flush();
+    expect(mocks.paper.getState().positionState.side).toBe("flat");
+    expect(mocks.runtime.getPosition().side).toBe("flat");
+    expect(mocks.handleMarket).not.toHaveBeenCalled();
+    pendingWrite.resolve(); await tick;
+    expect(mocks.handleResult).toHaveBeenCalledOnce(); stop(); await expectClosed();
+  });
+  it("does not let a delayed detector apply an older tick after a newer tick arms break-even", async () => {
+    await start(); await mocks.paper.execute(plan, { market_snapshot: market });
+    const decision = deferred(); mocks.handleMarket.mockReturnValueOnce(decision.promise);
+    const earlier = mocks.callbacks.onMarket({ ...market, markPrice: 99_500 }); await flush();
+    await mocks.callbacks.onMarket({ ...market, markPrice: 101_050 });
+    expect(mocks.paper.getState().positionState).toMatchObject({ side: "long", breakEvenArmed: true });
+    decision.resolve(); await earlier;
+    expect(mocks.paper.getState().positionState.side).toBe("long");
+    expect(mocks.handleResult).not.toHaveBeenCalled(); stop(); await expectClosed();
+  });
+  it("keeps an exit audit failure observable and does not retry the fill", async () => {
+    await start(); await mocks.paper.execute(plan, { market_snapshot: market });
+    mocks.handleResult.mockRejectedValueOnce(new Error("exit audit unavailable"));
+    await expect(mocks.callbacks.onMarket({ ...market, markPrice: 98_900 })).rejects.toThrow("exit audit unavailable");
+    expect(mocks.runtime.getPosition().side).toBe("flat");
+    expect(mocks.handleMarket).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith(expect.objectContaining({ tradeId: expect.any(String) }),
+      "Paper execution result handling failed; inspect audit state");
+    await mocks.callbacks.onMarket({ ...market, markPrice: 100_500 });
+    expect(mocks.handleResult).toHaveBeenCalledOnce(); stop(); await expectClosed();
+  });
+
 });

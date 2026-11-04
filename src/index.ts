@@ -115,9 +115,12 @@ const main = async (): Promise<void> => {
     const marketIngestor = new MarketIngestor(config, binance, logger, {
       onMarket: (snapshot) => work.run(async () => {
         runtime.setMarket(snapshot);
-        await store.saveSnapshot("market", snapshot);
-        await hotStore.setJson("latest:market", snapshot, 300);
-        await eventDetector.handleMarket(snapshot);
+        // Process the paper price before storage or model work can delay this tick.
+        // The real PaperBroker applies its deterministic lifecycle before its promise settles.
+        const failures: unknown[] = [];
+        const persist = async (operation: () => Promise<unknown>): Promise<void> => {
+          try { await operation(); } catch (error) { failures.push(error); }
+        };
         if ("onMarketSnapshot" in broker && typeof broker.onMarketSnapshot === "function") {
           const result = await broker.onMarketSnapshot(snapshot);
           const state = "getState" in broker && typeof broker.getState === "function"
@@ -128,16 +131,29 @@ const main = async (): Promise<void> => {
             runtime.setPosition(state.positionState);
           }
           if (result) {
-            await executionEngine.handleExecutionResult(result);
+            await persist(async () => {
+              try { await executionEngine.handleExecutionResult(result); }
+              catch (error) {
+                logger.error({ tradeId: result.tradeRecord?.tradeId },
+                  "Paper execution result handling failed; inspect audit state");
+                throw error;
+              }
+            });
           }
-          // Mark-to-market and protective lifecycle updates usually produce no execution.
+          // Attempt every state sink even when another write failed. Never replay the fill.
           if (state) {
-            await store.saveSnapshot("account", state.accountState);
-            await store.saveSnapshot("position", state.positionState);
-            await hotStore.setJson("latest:account", state.accountState, 300);
-            await hotStore.setJson("latest:position", state.positionState, 300);
+            await persist(() => store.saveSnapshot("account", state.accountState));
+            await persist(() => store.saveSnapshot("position", state.positionState));
+            await persist(() => hotStore.setJson("latest:account", state.accountState, 300));
+            await persist(() => hotStore.setJson("latest:position", state.positionState, 300));
           }
         }
+        await persist(() => store.saveSnapshot("market", snapshot));
+        await persist(() => hotStore.setJson("latest:market", snapshot, 300));
+        // New decisions remain fail-closed when any required persistence step failed.
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) throw new AggregateError(failures, "Market callback persistence failed");
+        await eventDetector.handleMarket(snapshot);
       }),
       onAccount: (account) => work.run(async () => {
         runtime.setAccount(account);
