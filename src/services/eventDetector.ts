@@ -1,10 +1,11 @@
 import type { EvaluationTrigger, MarketSnapshot, NewsEvent, OnchainSnapshot } from "../domain/types.js";
+import type { TriggerEvaluationResult } from "./triggerEvaluator.js";
 
 export class EventDetector {
-  private readonly lastTriggered = new Map<string, number>();
+  private readonly lastTriggered = new Map<string, { at: number }>();
 
   public constructor(
-    private readonly onTrigger: (trigger: EvaluationTrigger) => Promise<void> | void,
+    private readonly onTrigger: (trigger: EvaluationTrigger) => Promise<TriggerEvaluationResult> | TriggerEvaluationResult,
     private readonly getLatestMarket?: () => MarketSnapshot | null
   ) {}
 
@@ -77,12 +78,23 @@ export class EventDetector {
 
   private async emit(trigger: EvaluationTrigger): Promise<void> {
     const cooldownMs = trigger.reason === "minute_recheck" ? 50_000 : 20_000;
-    const last = this.lastTriggered.get(trigger.reason) ?? 0;
-    if (Date.now() - last < cooldownMs) {
+    const last = this.lastTriggered.get(trigger.reason);
+    if (last && Date.now() - last.at < cooldownMs) {
       return;
     }
 
-    this.lastTriggered.set(trigger.reason, Date.now());
-    await this.onTrigger(trigger);
+    // Reserve before awaiting so concurrent triggers still debounce. The object
+    // identity prevents an older failure from clearing a newer dispatch's slot.
+    const dispatch = { at: Date.now() };
+    this.lastTriggered.set(trigger.reason, dispatch);
+    let completed = false;
+    try {
+      const result = await this.onTrigger(trigger);
+      completed = result.status === "completed";
+    } finally {
+      if (!completed && this.lastTriggered.get(trigger.reason) === dispatch) {
+        this.lastTriggered.delete(trigger.reason);
+      }
+    }
   }
 }

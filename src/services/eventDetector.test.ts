@@ -4,7 +4,7 @@ import { EventDetector } from "./eventDetector.js";
 
 describe("EventDetector", () => {
   it("emits breakout trigger on strong market move", async () => {
-    const onTrigger = vi.fn();
+    const onTrigger = vi.fn().mockResolvedValue({ status: "completed" });
     const detector = new EventDetector(onTrigger);
 
     await detector.handleMarket({
@@ -43,7 +43,7 @@ describe("EventDetector", () => {
   });
 
   it("emits OI spike on a smaller move after recalibration", async () => {
-    const onTrigger = vi.fn();
+    const onTrigger = vi.fn().mockResolvedValue({ status: "completed" });
     const detector = new EventDetector(onTrigger);
 
     await detector.handleMarket({
