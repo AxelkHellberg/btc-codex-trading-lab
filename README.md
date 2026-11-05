@@ -124,9 +124,27 @@ Linux VM template:
 
 - `ops/systemd/btc-codex-trader.service`
 
+The Linux unit requires `docker.service`, starts only the Compose `postgres` and
+`redis` services, and waits up to 60 seconds for their healthchecks before building
+and starting the host Node process. A failed readiness check prevents `npm start`;
+the complete pre-start sequence (including build) has a 180-second systemd limit.
+The Compose app service is not started by this unit. Stopping the app leaves the
+backing services and their volumes running for the next start.
+
+Before enabling the template, install Node/npm, Docker Engine with its Compose
+plugin (supporting `up --wait`), and the project's locked dependencies. Put the
+checkout at `/opt/btc-codex-trading-lab`, copy `.env.example` to `.env`, and verify
+the unit's `User`, `Group`, and `/usr/bin/npm` / `/usr/bin/docker` paths for that
+host. The service account must be able to use the local Docker socket; Docker
+access grants substantial host privileges and must be provisioned deliberately.
+The Node process runs on the host, so its `.env` must use the published database
+ports (`localhost:55432` and `localhost:56379`), not Compose-internal hostnames.
+Inspect `journalctl -u btc-codex-trader` for a failed dependency gate. This is a
+startup check, not continuous monitoring or a production availability guarantee.
+
 The unit builds the checked-out source with `npm run build` before **every** app start, including restarts. A failed build prevents `npm start` from running, so a stale `dist/` directory is not served after a compilation error. Install the locked dependencies (including development dependencies for TypeScript) with `npm ci` before starting or restarting the unit. Do not prune development dependencies in this source-based service path.
 
-Provision `/opt/btc-codex-trading-lab` and its `.env` for the `ubuntu` service user, install Node/npm so `/usr/bin/npm` is available, and start PostgreSQL/Redis separately before enabling the unit. After pulling a source update, run `npm ci` if the lockfile changed, then restart the service; the pre-start build compiles that checkout. Check `journalctl -u btc-codex-trader` for build failures. This unit does not provision backing services or replace dependency readiness checks.
+Provision the checkout and `.env` for the service user before enabling the unit. After pulling a source update, run `npm ci` if the lockfile changed, then restart the service; its dependency gate runs before the pre-start build. Check `journalctl -u btc-codex-trader` for readiness or build failures.
 
 ## HTTP endpoints
 

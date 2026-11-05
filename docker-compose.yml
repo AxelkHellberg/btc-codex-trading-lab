@@ -40,6 +40,11 @@ services:
     ports:
       - "56379:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-e", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
     volumes:
       - redis-data:/data
 

@@ -2,14 +2,17 @@
 Description=BTC Codex Trading Lab
 After=network-online.target docker.service
 Wants=network-online.target
+Requires=docker.service
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/btc-codex-trading-lab
 Environment=NODE_ENV=production
 EnvironmentFile=/opt/btc-codex-trading-lab/.env
+ExecStartPre=/usr/bin/docker compose up --detach --wait --wait-timeout 60 postgres redis
 ExecStartPre=/usr/bin/npm run build
 ExecStart=/usr/bin/npm start
+TimeoutStartSec=180
 Restart=always
 RestartSec=10
 User=ubuntu
