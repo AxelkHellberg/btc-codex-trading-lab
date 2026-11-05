@@ -63,3 +63,19 @@ describe("manual evaluation outcomes", () => {
     expect(await evaluate(trigger)).toEqual({ status: "failed" });
   });
 });
+
+describe("EventDetector with real evaluator outcomes", () => {
+  it.each(["busy", "no_market", "failed"] as const)("retries a real %s evaluation without consuming the cooldown", async (status) => {
+    const { EventDetector } = await import("./eventDetector.js");
+    const { deps, evaluate } = setup();
+    if (status === "busy") deps.hotStore.acquireLock.mockResolvedValueOnce(false);
+    if (status === "no_market") deps.runtime.buildDecisionContext.mockReturnValueOnce(null);
+    if (status === "failed") deps.decisionWorker.decide.mockRejectedValueOnce(new Error("model down"));
+    const detector = new EventDetector(evaluate);
+    await detector.heartbeat();
+    await detector.heartbeat();
+    await detector.heartbeat();
+    expect(deps.hotStore.acquireLock).toHaveBeenCalledTimes(2);
+    expect(deps.executionEngine.maybeExecute).toHaveBeenCalledOnce();
+  });
+});

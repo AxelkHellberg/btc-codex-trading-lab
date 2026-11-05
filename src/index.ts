@@ -45,7 +45,7 @@ const main = async (): Promise<void> => {
     riskPolicy: config.riskPolicy
   });
 
-  const eventDetector = new EventDetector(async (trigger) => { await evaluateTrigger(trigger); }, () => runtime.getMarket());
+  const eventDetector = new EventDetector(evaluateTrigger, () => runtime.getMarket());
 
   const marketIngestor = new MarketIngestor(config, binance, logger, {
     onMarket: async (snapshot) => {

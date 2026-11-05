@@ -155,3 +155,10 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+Event-trigger cooldowns use the evaluator's explicit outcome: only a completed
+evaluation retains the cooldown (including a valid risk rejection). Busy,
+missing-market, failed, and rejected dispatches release only their own slot so a
+later same-reason trigger can try again. A pending dispatch still debounces
+concurrent events; a late failure cannot clear a newer dispatch's cooldown.
+This allows later evaluations; it does not automatically replay an order.
