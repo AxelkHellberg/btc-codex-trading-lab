@@ -110,6 +110,14 @@ Useful commands:
 
 ## Operations
 
+When a local `.env` omits connection settings, the application and `doctor` use
+the same defaults as `.env.example`: HTTP on `3300`, PostgreSQL on localhost
+`55432`, and Redis on localhost `56379`. These database ports are the host-side
+Compose mappings. The Compose app overrides the database URLs with the internal
+service ports (`postgres:5432` and `redis:6379`). Explicit environment values still
+take precedence. A standalone container outside Compose must receive reachable
+database URLs rather than using the host-process defaults.
+
 macOS background run:
 
 - `./scripts/run-daemon.sh`
