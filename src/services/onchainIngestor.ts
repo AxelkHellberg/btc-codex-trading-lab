@@ -19,7 +19,18 @@ type DifficultyResponse = {
   remainingBlocks: number;
   nextRetargetHeight: number;
   previousRetarget: number;
+  difficultyChange: number;
 };
+
+function parseDifficultyChange(payload: unknown): number {
+  const change = payload !== null && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Partial<DifficultyResponse>).difficultyChange : undefined;
+  // The upstream BTC estimate is clamped to the protocol's -75% to +300% range.
+  if (typeof change !== "number" || !Number.isFinite(change) || change < -75 || change > 300) {
+    throw new Error("Invalid /v1/difficulty-adjustment difficultyChange: expected a finite percentage from -75 to 300");
+  }
+  return change;
+}
 
 export class OnchainIngestor {
   private timer: NodeJS.Timeout | null = null;
@@ -55,6 +66,11 @@ export class OnchainIngestor {
           Number(await response.text())
         ),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
+          .then(parseDifficultyChange)
+          .catch((error: unknown) => {
+            this.logger.warn({ error }, "Difficulty estimate unavailable; publishing core on-chain metrics");
+            return null;
+          })
       ]);
 
       const now = Date.now();
@@ -63,6 +79,7 @@ export class OnchainIngestor {
           ? (now - this.lastHeightAt) / 1000 / (tipHeight - this.lastHeight)
           : 600;
 
+      const difficultyAdjustment = difficulty;
       this.lastHeight = tipHeight;
       this.lastHeightAt = now;
       this.lastFees = fees.fastestFee;
@@ -73,7 +90,7 @@ export class OnchainIngestor {
         halfHourFee: fees.halfHourFee,
         hourFee: fees.hourFee,
         tipHeight,
-        difficultyAdjustment: difficulty.progressPercent,
+        difficultyAdjustment,
         blockCadenceSeconds,
         timestamp: now
       });

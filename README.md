@@ -130,6 +130,13 @@ Linux VM template:
 - `GET /status`
 - `POST /trigger`
 
+The on-chain snapshot's `difficultyAdjustment` is the estimated percentage change
+at the next difficulty retarget, from the upstream `difficultyChange` field. Zero
+and negative estimates are valid; this is not the percentage of the epoch elapsed.
+Missing, non-numeric, non-finite or out-of-range estimates (outside -75% to +300%)
+reject the poll before its snapshot or cadence baseline changes. Historical stored
+snapshots are not rewritten.
+
 ## CI
 
 GitHub Actions runs:
@@ -155,3 +162,7 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Partial on-chain availability
+
+Mempool count, recommended fees and tip height form the required core of an on-chain snapshot. A failed or invalid difficulty-adjustment response does not discard that core: `difficultyAdjustment` is `null` for that poll, including the first poll. Consumers must treat `null` as unavailable, not zero or a previous estimate. The snapshot timestamp describes the current core observations; old difficulty values are never relabeled as fresh. A core endpoint failure still discards the poll without advancing the cadence baseline. Difficulty recovery is attempted on the next normal poll. Shared HTTP deadlines remain a separate change; this policy alone does not bound a transport that never settles.
