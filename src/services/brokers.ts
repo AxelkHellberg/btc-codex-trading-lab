@@ -27,7 +27,6 @@ export class PaperBroker implements Broker {
   public readonly name = "paper";
   private account: AccountState;
   private position: PositionState;
-  private peakEquity: number;
   private activeTrade: PersistedTradeRecord | null = null;
 
   public constructor(private readonly config: AppConfig) {
@@ -51,10 +50,11 @@ export class PaperBroker implements Broker {
       unrealizedPnl: 0,
       realizedPnl: 0
     };
-    this.peakEquity = config.paperStartingBalance;
+    this.rollRiskWindows();
   }
 
   public async execute(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
+    this.rollRiskWindows();
     if (plan.action === "LONG" || plan.action === "SHORT") {
       return this.openPosition(plan, context.market_snapshot);
     }
@@ -67,6 +67,7 @@ export class PaperBroker implements Broker {
   }
 
   public async onMarketSnapshot(snapshot: MarketSnapshot): Promise<ExecutionResult | null> {
+    this.rollRiskWindows();
     if (this.position.side === "flat" || this.position.quantity <= 0) {
       return null;
     }
@@ -113,6 +114,7 @@ export class PaperBroker implements Broker {
   }
 
   public getState(): { accountState: AccountState; positionState: PositionState } {
+    this.rollRiskWindows();
     return {
       accountState: { ...this.account },
       positionState: { ...this.position }
@@ -455,11 +457,36 @@ export class PaperBroker implements Broker {
     return record;
   }
 
+  private rollRiskWindows(): void {
+    const now = Date.now();
+    const day = new Date(now);
+    day.setUTCHours(0, 0, 0, 0);
+    const dayStart = day.getTime();
+    const weekStart = dayStart - ((day.getUTCDay() + 6) % 7) * 86_400_000;
+    if (this.account.riskDayStartedAt === undefined || dayStart > this.account.riskDayStartedAt) {
+      this.account.riskDayStartedAt = dayStart;
+      this.account.dailyPnl = 0;
+      this.account.dailyLossReferenceBalance = this.account.walletBalance;
+      this.account.updatedAt = now;
+    }
+    if (this.account.riskWeekStartedAt === undefined || weekStart > this.account.riskWeekStartedAt) {
+      this.account.riskWeekStartedAt = weekStart;
+      this.account.weeklyPeakEquity = this.account.equity;
+      this.account.weeklyDrawdown = 0;
+      this.account.updatedAt = now;
+    }
+  }
+
+  private updateWeeklyDrawdown(): void {
+    this.account.weeklyPeakEquity = Math.max(this.account.weeklyPeakEquity ?? this.account.equity, this.account.equity);
+    const peak = this.account.weeklyPeakEquity;
+    this.account.weeklyDrawdown = peak > 0 ? Math.max(0, (peak - this.account.equity) / peak) : 0;
+  }
+
   private markToMarket(markPrice: number): void {
     if (this.position.side === "flat" || this.position.quantity <= 0) {
       this.account.equity = this.account.walletBalance;
-      this.account.weeklyDrawdown =
-        this.peakEquity > 0 ? Math.max(0, (this.peakEquity - this.account.equity) / this.peakEquity) : 0;
+      this.updateWeeklyDrawdown();
       this.account.updatedAt = Date.now();
       return;
     }
@@ -477,9 +504,7 @@ export class PaperBroker implements Broker {
       mae
     };
     this.account.equity = this.account.walletBalance + unrealized;
-    this.peakEquity = Math.max(this.peakEquity, this.account.equity);
-    this.account.weeklyDrawdown =
-      this.peakEquity > 0 ? Math.max(0, (this.peakEquity - this.account.equity) / this.peakEquity) : 0;
+    this.updateWeeklyDrawdown();
     this.account.updatedAt = Date.now();
 
     if (this.activeTrade) {

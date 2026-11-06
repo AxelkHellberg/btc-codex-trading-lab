@@ -106,7 +106,8 @@ export class RuntimeState {
     cooldownMinutes: number;
   }): RiskState {
     const reasons: string[] = [];
-    const dailyLossHit = this.account.dailyPnl <= -policy.maxDailyLoss * this.account.walletBalance;
+    const referenceBalance = this.account.dailyLossReferenceBalance ?? this.account.walletBalance;
+    const dailyLossHit = this.account.dailyPnl <= -policy.maxDailyLoss * referenceBalance;
     const weeklyDrawdownHit = this.account.weeklyDrawdown >= policy.maxWeeklyDrawdown;
     const cooldownActive =
       this.account.consecutiveLosses >= 2 &&

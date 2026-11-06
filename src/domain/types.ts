@@ -118,6 +118,11 @@ export interface AccountState {
   walletBalance: number;
   availableBalance: number;
   dailyPnl: number;
+  /** UTC calendar-day and Monday-based UTC week anchors for paper risk accounting. */
+  riskDayStartedAt?: number;
+  riskWeekStartedAt?: number;
+  dailyLossReferenceBalance?: number;
+  weeklyPeakEquity?: number;
   weeklyDrawdown: number;
   consecutiveLosses: number;
   openOrders: number;
