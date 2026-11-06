@@ -14,7 +14,7 @@ import type {
   PositionState
 } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
-import { estimateSlippagePrice, roundToTick, signedPnl } from "../lib/math.js";
+import { estimateSlippagePrice, normalizeQuantity, roundToTick, signedPnl } from "../lib/math.js";
 
 export interface Broker {
   readonly name: string;
@@ -230,34 +230,44 @@ export class PaperBroker implements Broker {
     }
 
     if (!this.position.tp1Filled && this.position.tp1 !== undefined && this.hasHitTp1(snapshot.markPrice)) {
-      const partialQuantity = this.position.quantity * 0.5;
-      return this.closeOrReducePosition(
-        {
-          action: "REDUCE",
-          side: this.position.side === "long" ? "SELL" : "BUY",
-          entryType: "MARKET",
-          leverage: this.position.leverage,
-          quantity: partialQuantity,
-          notionalUsd: partialQuantity * snapshot.markPrice,
-          entryPrice: snapshot.markPrice,
-          stopLoss: this.position.stopLoss,
-          tp1: this.position.tp1,
-          tp2: this.position.tp2 ?? this.position.takeProfit,
-          breakEvenTriggerR: this.position.breakEvenTriggerR,
-          trailingTriggerR: this.position.trailingTriggerR,
-          trailingOffset: this.position.trailingOffset,
-          initialRiskPerUnit: this.position.initialRiskPerUnit,
-          maxHoldUntil: this.position.maxHoldUntil,
-          confidence: 1,
-          setupType: this.position.setupType,
-          regimeAtEntry: this.position.regimeAtEntry,
-          entryReason: this.position.entryReason ?? "partial take profit",
-          reasoningSummary: "partial take profit",
-          invalidationPrice: this.position.stopLoss
-        },
-        snapshot,
-        "partial_take_profit"
-      );
+      const filters = snapshot.filters;
+      const validFilters = filters && Number.isFinite(filters.stepSize) && filters.stepSize > 0 &&
+        Number.isFinite(filters.minQty) && filters.minQty > 0;
+      const partialQuantity = validFilters ? normalizeQuantity(this.position.quantity * 0.5, filters) : 0;
+      const remainingQuantity = this.position.quantity - partialQuantity;
+      const normalizedRemainder = validFilters ? normalizeQuantity(remainingQuantity, filters) : 0;
+      const tolerance = (filters?.stepSize ?? 0) * 1e-8;
+      // Keep the whole position when either leg cannot execute; terminal exits still run below.
+      if (partialQuantity > 0 && normalizedRemainder > 0 &&
+          Math.abs(remainingQuantity - normalizedRemainder) <= tolerance) {
+        return this.closeOrReducePosition(
+          {
+            action: "REDUCE",
+            side: this.position.side === "long" ? "SELL" : "BUY",
+            entryType: "MARKET",
+            leverage: this.position.leverage,
+            quantity: partialQuantity,
+            notionalUsd: partialQuantity * snapshot.markPrice,
+            entryPrice: snapshot.markPrice,
+            stopLoss: this.position.stopLoss,
+            tp1: this.position.tp1,
+            tp2: this.position.tp2 ?? this.position.takeProfit,
+            breakEvenTriggerR: this.position.breakEvenTriggerR,
+            trailingTriggerR: this.position.trailingTriggerR,
+            trailingOffset: this.position.trailingOffset,
+            initialRiskPerUnit: this.position.initialRiskPerUnit,
+            maxHoldUntil: this.position.maxHoldUntil,
+            confidence: 1,
+            setupType: this.position.setupType,
+            regimeAtEntry: this.position.regimeAtEntry,
+            entryReason: this.position.entryReason ?? "partial take profit",
+            reasoningSummary: "partial take profit",
+            invalidationPrice: this.position.stopLoss
+          },
+          snapshot,
+          "partial_take_profit"
+        );
+      }
     }
 
     if (
