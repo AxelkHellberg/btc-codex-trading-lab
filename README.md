@@ -155,3 +155,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+Automatic paper TP1 exits round the half-position down to the symbol quantity step.
+Both the partial exit and its remainder must meet `minQty` and `stepSize`. If filters
+are missing/invalid or either leg cannot execute, TP1 is skipped; the full position
+continues through stop, TP2 and time-exit checks. This does not implement exchange
+min-notional validation or live partial-exit lifecycle behavior.
