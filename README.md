@@ -168,3 +168,11 @@ Recovery requests a new usable key and stops the old local keepalive. It does no
 explicitly invalidate old keys on the exchange; remote key cleanup remains separate.
 Supplemental REST polling remains available during recovery. Tests use fake sockets
 and mocked REST methods; this behavior has not been exercised against a live exchange.
+
+User-stream rotation closes the owned REST stream before requesting its replacement.
+Shutdown waits for an in-flight key request and closes a late returned key. A failed
+DELETE retains cleanup ownership and blocks replacement until a later attempt succeeds;
+shutdown reports cleanup failure. DELETE has a 10-second deadline and accepts an empty
+successful response. The API closes the API key's active stream, not an individually
+addressed key: run only one owner per API key. A network timeout can still leave the
+server outcome unknown; the next attempt serializes cleanup before another POST.

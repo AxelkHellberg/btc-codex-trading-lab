@@ -57,6 +57,7 @@ export class MarketIngestor {
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private listenKey: string | null = null;
+  private userStreamClosing: Promise<void> | null = null;
   private userStreamStopped = false;
   private userStreamGeneration = 0;
   private userStreamStarting: Promise<void> | null = null;
@@ -97,18 +98,18 @@ export class MarketIngestor {
   public async stop(): Promise<void> {
     this.userStreamStopped = true;
     this.userStreamGeneration += 1;
-    this.userStreamStarting = null;
     if (this.userReconnectTimer) clearTimeout(this.userReconnectTimer);
     this.userReconnectTimer = null;
     this.client.stopUserStreamKeepalive();
     const userSocket = this.userSocket;
     this.userSocket = null;
-    this.listenKey = null;
     this.marketSocket?.close();
     userSocket?.close();
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
     }
+    await this.userStreamStarting?.catch(() => undefined);
+    await this.closeOwnedUserStream();
   }
 
   private connectMarketSocket(): void {
@@ -140,8 +141,14 @@ export class MarketIngestor {
   }
 
   private async openUserStream(generation: number): Promise<void> {
-    const listenKey = await this.client.startUserStream();
+    await this.closeOwnedUserStream();
     if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
+    const listenKey = await this.client.startUserStream();
+    this.listenKey = listenKey;
+    if (this.userStreamStopped || generation !== this.userStreamGeneration) {
+      await this.closeOwnedUserStream();
+      return;
+    }
     const socket = this.client.connectUserStream(listenKey, (event) => {
       if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
       if (event && typeof event === "object" && "e" in event && event.e === "listenKeyExpired") {
@@ -170,12 +177,27 @@ export class MarketIngestor {
     this.client.startUserStreamKeepalive(listenKey, () => this.recoverUserStream(generation));
   }
 
+  private closeOwnedUserStream(): Promise<void> {
+    if (this.userStreamClosing) return this.userStreamClosing;
+    if (this.listenKey === null) return Promise.resolve();
+    const closing = this.client.closeUserStream().then(() => {
+      this.listenKey = null;
+    }).catch(() => {
+      // Retain ownership after failure and block replacement until deletion is confirmed.
+      this.logger.warn("Failed to close owned user stream");
+      throw new Error("Failed to close owned user stream");
+    }).finally(() => {
+      if (this.userStreamClosing === closing) this.userStreamClosing = null;
+    });
+    this.userStreamClosing = closing;
+    return closing;
+  }
+
   private recoverUserStream(generation: number): void {
     if (this.userStreamStopped || generation !== this.userStreamGeneration) return;
     this.userStreamGeneration += 1; // Retire every callback belonging to the old stream.
     const socket = this.userSocket;
     this.userSocket = null;
-    this.listenKey = null;
     this.client.stopUserStreamKeepalive();
     socket?.close();
     this.logger.warn("User stream unavailable; scheduling listen-key recovery");

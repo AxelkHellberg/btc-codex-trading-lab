@@ -233,6 +233,17 @@ export class BinanceFuturesClient {
     return response.listenKey;
   }
 
+  public async closeUserStream(): Promise<void> {
+    // This endpoint closes the API key's active stream, so callers must serialize rotation.
+    const response = await fetch(`${this.baseUrl}/fapi/v1/listenKey`, {
+      method: "DELETE",
+      headers: { "X-MBX-APIKEY": this.apiKey },
+      signal: AbortSignal.timeout(10_000)
+    });
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`User stream close failed (HTTP ${response.status})`);
+  }
+
   public startUserStreamKeepalive(listenKey: string, onFailure?: () => void): void {
     this.stopUserStreamKeepalive();
     this.userStreamKeepaliveTimer = setInterval(() => {
@@ -365,6 +376,7 @@ export class BinanceFuturesClient {
   private async unsignedPrivatePost<T>(path: string): Promise<T> {
     return fetchJson<T>(`${this.baseUrl}${path}`, {
       method: "POST",
+      signal: AbortSignal.timeout(10_000),
       headers: {
         "X-MBX-APIKEY": this.apiKey
       }

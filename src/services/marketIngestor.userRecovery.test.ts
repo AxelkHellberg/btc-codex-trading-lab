@@ -16,6 +16,7 @@ const setup = () => {
   const messages: ((event: unknown) => void)[] = [];
   const keepaliveFailures: (() => void)[] = [];
   const client = {
+    closeUserStream: vi.fn().mockResolvedValue(undefined),
     startUserStream: vi.fn().mockResolvedValue("private-key"),
     startUserStreamKeepalive: vi.fn((_key: string, failure: () => void) => keepaliveFailures.push(failure)),
     stopUserStreamKeepalive: vi.fn(),
@@ -87,15 +88,18 @@ describe("user-stream recovery", () => {
   it("does not open a late connection or keepalive after stopping during the key request", async () => {
     const x = setup(); await x.start(); const key = deferred<string>();
     x.client.startUserStream.mockReturnValueOnce(key.promise); x.sockets[0]!.emit("close");
-    await vi.advanceTimersByTimeAsync(3_000); await x.ingestor.stop(); key.resolve("late-private-key");
+    await vi.advanceTimersByTimeAsync(3_000); const stopping = x.ingestor.stop(); key.resolve("late-private-key");
+    await stopping;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(x.client.connectUserStream).toHaveBeenCalledOnce();
     expect(x.client.startUserStreamKeepalive).toHaveBeenCalledOnce();
+    expect(x.client.closeUserStream).toHaveBeenCalledTimes(2);
   });
   it("does not retry a late key rejection after shutdown", async () => {
     const x = setup(); await x.start(); const key = deferred<string>();
     x.client.startUserStream.mockReturnValueOnce(key.promise); x.sockets[0]!.emit("close");
-    await vi.advanceTimersByTimeAsync(3_000); await x.ingestor.stop(); key.reject(new Error("late failure"));
+    await vi.advanceTimersByTimeAsync(3_000); const stopping = x.ingestor.stop(); key.reject(new Error("late failure"));
+    await stopping;
     await vi.advanceTimersByTimeAsync(60_000); expect(x.client.startUserStream).toHaveBeenCalledTimes(2);
   });
   it("recovers an active keepalive failure and observes callback failures", async () => {
@@ -107,4 +111,31 @@ describe("user-stream recovery", () => {
     expect(JSON.stringify(x.logger.warn.mock.calls)).not.toContain("secret-account");
     await x.ingestor.stop();
   });
+  it("waits for deletion before starting a replacement", async () => {
+    const x = setup(); await x.start(); const closed = deferred<void>();
+    x.client.closeUserStream.mockReturnValueOnce(closed.promise);
+    x.sockets[0]!.emit("close"); await vi.advanceTimersByTimeAsync(3_000);
+    expect(x.client.startUserStream).toHaveBeenCalledOnce();
+    closed.resolve(); await vi.advanceTimersByTimeAsync(0);
+    expect(x.client.startUserStream).toHaveBeenCalledTimes(2);
+    await x.ingestor.stop();
+  });
+  it("retains cleanup ownership on failure and blocks replacement until retry succeeds", async () => {
+    const x = setup(); await x.start();
+    x.client.closeUserStream.mockRejectedValueOnce(new Error("private-key"));
+    x.sockets[0]!.emit("close"); await vi.advanceTimersByTimeAsync(3_000);
+    expect(x.client.startUserStream).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(x.client.closeUserStream).toHaveBeenCalledTimes(2);
+    expect(x.client.startUserStream).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(x.logger.warn.mock.calls)).not.toContain("private-key");
+    await x.ingestor.stop();
+  });
+  it("closes the active key once at shutdown and ignores obsolete close events", async () => {
+    const x = setup(); await x.start(); await x.ingestor.stop(); await x.ingestor.stop();
+    expect(x.client.closeUserStream).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(x.client.startUserStream).toHaveBeenCalledOnce();
+  });
+
 });
