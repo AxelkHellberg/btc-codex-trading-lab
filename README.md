@@ -155,3 +155,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Decision-loop lease
+
+The decision loop retains a local single-flight guard until its work settles and refreshes the 55-second Redis lease approximately every 18 seconds. Renewal and release compare the token atomically in Redis. Immediately before `maybeExecute`, ownership must be confirmed again; failed, late or rejected renewal prevents that execution from starting. Renewal calls never overlap, and cleanup waits for an in-flight renewal before releasing its token.
+
+This is a cooperative lease, not fencing of external effects. A paused process or Redis outage can still lose ownership, and an exchange request already in flight cannot be cancelled or rolled back by a later lease failure. Local single-flight continues to reject concurrent triggers until the original work drains. Redis transport deadlines and draining work during shutdown remain separate requirements.

@@ -27,6 +27,17 @@ export class RedisHotStore {
     return result === "OK";
   }
 
+  public async renewLock(key: string, token: string, ttlMs: number): Promise<boolean> {
+    const renewed = await this.redis.eval(`
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("pexpire", KEYS[1], ARGV[2])
+      else
+        return 0
+      end
+    `, 1, key, token, ttlMs);
+    return renewed === 1;
+  }
+
   // Security fix: Use atomic Lua script to prevent race condition in lock release
   public async releaseLock(key: string, token: string): Promise<void> {
     const luaScript = `

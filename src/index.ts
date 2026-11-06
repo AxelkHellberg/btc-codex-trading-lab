@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { BinanceFuturesClient } from "./infra/binance/binanceFuturesClient.js";
 import { TelegramNotifier } from "./infra/notifier/telegramNotifier.js";
@@ -7,6 +8,7 @@ import { createHttpServer } from "./http/server.js";
 import { logger } from "./logger.js";
 import { LiveBroker, PaperBroker, type Broker } from "./services/brokers.js";
 import { CodexDecisionWorker } from "./services/codexDecisionWorker.js";
+import { DecisionLease } from "./services/decisionLease.js";
 import { EventDetector } from "./services/eventDetector.js";
 import { ExecutionEngine } from "./services/executionEngine.js";
 import { MarketIngestor } from "./services/marketIngestor.js";
@@ -36,6 +38,7 @@ const main = async (): Promise<void> => {
   const decisionWorker = new CodexDecisionWorker(config, logger);
   const planner = new StrategyPlanner(config);
   const riskEngine = new RiskEngine(config);
+  const decisionLease = new DecisionLease(hotStore, logger);
 
   await store.init();
 
@@ -53,28 +56,23 @@ const main = async (): Promise<void> => {
     details: string;
     triggeredAt: number;
   }): Promise<void> => {
-    const lockToken = `${process.pid}-${trigger.reason}-${trigger.triggeredAt}`;
-    const acquired = await hotStore.acquireLock("decision-loop", lockToken, 55_000);
-    if (!acquired) {
-      return;
-    }
-
     try {
-      const context = runtime.buildDecisionContext(trigger, config.riskPolicy);
-      if (!context) {
-        return;
-      }
+      await decisionLease.run(randomUUID(), async (assertOwned) => {
+        const context = runtime.buildDecisionContext(trigger, config.riskPolicy);
+        if (!context) {
+          return;
+        }
 
-      await hotStore.setJson("latest:context", context, 300);
-      const signal = await decisionWorker.decide(context);
-      const planning = planner.plan(context, signal);
-      const evaluation = riskEngine.evaluate(context, planning);
-      await executionEngine.maybeExecute(context, signal, evaluation);
+        await hotStore.setJson("latest:context", context, 300);
+        const signal = await decisionWorker.decide(context);
+        const planning = planner.plan(context, signal);
+        const evaluation = riskEngine.evaluate(context, planning);
+        await assertOwned();
+        await executionEngine.maybeExecute(context, signal, evaluation);
+      });
     } catch (error) {
       logger.error({ error, trigger }, "Decision loop failed");
       await notifier.notify(`Decision loop failed: ${String(error)}`);
-    } finally {
-      await hotStore.releaseLock("decision-loop", lockToken);
     }
   };
 
