@@ -155,3 +155,17 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Paper risk calendar
+
+Paper realized PnL resets on UTC calendar days; its daily loss budget uses the
+wallet balance captured at that day's start rather than the moving balance.
+Weekly drawdown uses the highest observed equity since Monday 00:00 UTC and
+resets at the next Monday. A position carried across a boundary stays open;
+its realized closing leg belongs to the day it closes. Loss streaks and cooldown
+expiry are not reset by midnight. No production account settings are changed.
+The account snapshot carries the period anchors, daily reference, and weekly peak.
+Any startup restoration must retain those fields with the account; the base
+application does not restore broker state across process restarts. Historical
+replay callers must advance the broker clock with replay time to use these
+calendar windows. Live account risk-history reconstruction remains separate.
