@@ -34,27 +34,29 @@ describe("OnchainIngestor difficulty adjustment", () => {
 
   it.each([{}, null, [], { difficultyChange: null }, { difficultyChange: "3" },
     { difficultyChange: NaN }, { difficultyChange: Infinity }, { difficultyChange: -Infinity },
-    { difficultyChange: -75.01 }, { difficultyChange: 300.01 }])("rejects malformed difficulty data %j", async (difficulty) => {
+    { difficultyChange: -75.01 }, { difficultyChange: 300.01 }])("omits malformed difficulty data %j while retaining core fields", async (difficulty) => {
     const { ingestor, onSnapshot, warn } = setup(difficulty);
     await ingestor.start();
-    expect(onSnapshot).not.toHaveBeenCalled();
+    expect(onSnapshot).toHaveBeenCalledOnce();
+    expect(onSnapshot.mock.calls[0]![0].difficultyAdjustment).toBeNull();
     expect(warn).toHaveBeenCalledOnce();
     expect(warn.mock.calls[0]![0].error.message).toMatch(/\/v1\/difficulty-adjustment.*difficultyChange/);
     ingestor.stop();
   });
 
-  it("keeps cadence based on the last accepted poll when a difficulty payload is rejected", async () => {
+  it("advances the core cadence baseline even when difficulty is unavailable", async () => {
     const { ingestor, fixture, onSnapshot } = setup({ difficultyChange: -3, progressPercent: 75 });
     await ingestor.start();
     fixture.height = 900010;
     fixture.difficulty = {};
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(onSnapshot).toHaveBeenCalledOnce();
-    fixture.height = 900002;
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
+    expect(onSnapshot.mock.calls[1]![0].difficultyAdjustment).toBeNull();
+    fixture.height = 900012;
     fixture.difficulty = { difficultyChange: 0, progressPercent: 90 };
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(onSnapshot).toHaveBeenCalledTimes(2);
-    expect(onSnapshot.mock.calls[1]![0]).toMatchObject({ difficultyAdjustment: 0, blockCadenceSeconds: 300 });
+    expect(onSnapshot).toHaveBeenCalledTimes(3);
+    expect(onSnapshot.mock.calls[2]![0]).toMatchObject({ difficultyAdjustment: 0, blockCadenceSeconds: 150 });
     ingestor.stop();
   });
 });

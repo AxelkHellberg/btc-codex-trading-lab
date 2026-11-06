@@ -66,6 +66,11 @@ export class OnchainIngestor {
           Number(await response.text())
         ),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
+          .then(parseDifficultyChange)
+          .catch((error: unknown) => {
+            this.logger.warn({ error }, "Difficulty estimate unavailable; publishing core on-chain metrics");
+            return null;
+          })
       ]);
 
       const now = Date.now();
@@ -74,7 +79,7 @@ export class OnchainIngestor {
           ? (now - this.lastHeightAt) / 1000 / (tipHeight - this.lastHeight)
           : 600;
 
-      const difficultyAdjustment = parseDifficultyChange(difficulty);
+      const difficultyAdjustment = difficulty;
       this.lastHeight = tipHeight;
       this.lastHeightAt = now;
       this.lastFees = fees.fastestFee;
