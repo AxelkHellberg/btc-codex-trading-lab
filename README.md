@@ -155,3 +155,17 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+RSS acknowledgements persist in PostgreSQL, scoped by symbol and trading mode. Startup
+loads up to 10,000 successfully delivered item IDs before reading feeds. Only a resolved
+downstream callback followed by a successful checkpoint write acknowledges a batch.
+The checkpoint is an upserted row per scope, independent of snapshot retention. Evicted
+IDs can replay, and a crash or failed checkpoint after callback completion can replay
+that batch: delivery remains at least once, not exactly once. New deployments start
+with an empty window; this does not import older snapshots. Run one news ingestor per
+scope; concurrent processes sharing a scope are not coordinated by this checkpoint.
+
+Run the optional checkpoint persistence contract tests only against a disposable local
+PostgreSQL database with `NEWS_DEDUPE_TEST_DATABASE_URL=... npm test --
+src/infra/store/newsAcknowledgements.test.ts`. They create application tables and write
+test scopes. The default test run skips these four database cases.

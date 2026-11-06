@@ -119,7 +119,7 @@ const main = async (): Promise<void> => {
     await store.saveSnapshot("news", events);
     await hotStore.setJson("latest:news", events, 300);
     await eventDetector.handleNews(events);
-  });
+  }, store);
 
   const onchainIngestor = new OnchainIngestor(config, logger, async (snapshot) => {
     runtime.setOnchain(snapshot);
