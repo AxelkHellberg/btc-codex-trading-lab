@@ -155,3 +155,17 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Market history recovery
+
+Derived market snapshots are withheld when their completed one-minute history
+has a gap or has not reached the minute before the event. A single 240-row REST
+repair reconciles canonical candle times, preserving final socket rows received
+while it was pending. Recovery requires at least 60 contiguous completed rows;
+publication resumes on the next valid event. Failed/stale pages leave the prior
+history intact and retries are spaced by three seconds. A 10-second acceptance
+deadline rejects late results; a still-running request retains the single-flight
+slot until it settles. This gate cannot cancel an underlying client request.
+Stopping invalidates pending recovery. During a gap paper lifecycle checks also
+receive no market snapshots; existing live exchange protection is unaffected.
+This is an offline-tested history contract, not a live outage/reconnect test.
