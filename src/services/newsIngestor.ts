@@ -12,20 +12,32 @@ const POSITIVE_WORDS = ["approval", "inflow", "bull", "surge", "record", "adopti
 const NEGATIVE_WORDS = ["hack", "ban", "liquidation", "lawsuit", "outflow", "bear", "dump"];
 const BTC_KEYWORDS = ["bitcoin", "btc", "etf", "fomc", "cpi", "inflation", "fed", "rates", "sec"];
 
+export interface NewsAcknowledgementStore {
+  loadAcknowledgedNews(scope: string): Promise<string[]>;
+  saveAcknowledgedNews(scope: string, ids: string[]): Promise<void>;
+}
+
+const MAX_ACKNOWLEDGED_NEWS = 10_000;
+
 export class NewsIngestor {
   private readonly seen = new Set<string>();
+  private loadedAcknowledgements = false;
+  private pollInFlight: Promise<void> | null = null;
   private timer: NodeJS.Timeout | null = null;
 
   public constructor(
     private readonly config: AppConfig,
     private readonly logger: Logger,
-    private readonly onEvents: (events: NewsEvent[]) => Promise<void> | void
+    private readonly onEvents: (events: NewsEvent[]) => Promise<void> | void,
+    private readonly acknowledgements?: NewsAcknowledgementStore
   ) {}
 
   public async start(): Promise<void> {
     await this.poll();
     this.timer = setInterval(() => {
-      void this.poll();
+      void this.poll().catch(() => {
+        this.logger.warn("News poll failed before acknowledgement");
+      });
     }, 60_000);
   }
 
@@ -35,7 +47,25 @@ export class NewsIngestor {
     }
   }
 
-  private async poll(): Promise<void> {
+  private poll(): Promise<void> {
+    if (this.pollInFlight) return this.pollInFlight;
+    const poll = this.pollOnce().finally(() => {
+      if (this.pollInFlight === poll) this.pollInFlight = null;
+    });
+    this.pollInFlight = poll;
+    return poll;
+  }
+
+  private async pollOnce(): Promise<void> {
+    const scope = `${this.config.symbol}:${this.config.tradingMode}`;
+    if (!this.loadedAcknowledgements && this.acknowledgements) {
+      const ids = await this.acknowledgements.loadAcknowledgedNews(scope);
+      if (ids.length > MAX_ACKNOWLEDGED_NEWS || ids.some((id) => !/^[a-f0-9]{40}$/.test(id))) {
+        throw new Error("Invalid persisted news acknowledgement window");
+      }
+      for (const id of ids) this.seen.add(id);
+      this.loadedAcknowledgements = true;
+    }
     const feeds = [
       ...this.config.feeds.news.map((feed) => ({ feed, tag: "news" })),
       ...this.config.feeds.macro.map((feed) => ({ feed, tag: "macro" }))
@@ -87,10 +117,11 @@ export class NewsIngestor {
       await this.onEvents(
         collected.sort((left, right) => right.relevanceScore - left.relevanceScore)
       );
-      // Delivery is at least once: a rejected sink must leave these IDs retryable.
-      for (const event of collected) {
-        this.seen.add(event.id);
-      }
+      // Persist only after downstream acknowledgement. A crash in between can replay a batch.
+      const nextSeen = [...this.seen, ...collected.map((event) => event.id)].slice(-MAX_ACKNOWLEDGED_NEWS);
+      await this.acknowledgements?.saveAcknowledgedNews(scope, nextSeen);
+      this.seen.clear();
+      for (const id of nextSeen) this.seen.add(id);
     }
   }
 

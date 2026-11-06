@@ -64,6 +64,12 @@ export class PostgresStateStore {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS news_acknowledgements (
+        scope TEXT PRIMARY KEY,
+        ids JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS heartbeats (
         service_name TEXT PRIMARY KEY,
         payload JSONB NOT NULL,
@@ -96,6 +102,25 @@ export class PostgresStateStore {
       kind,
       JSON.stringify(payload)
     ]);
+  }
+
+  public async loadAcknowledgedNews(scope: string): Promise<string[]> {
+    const result = await this.pool.query<{ ids: unknown }>(
+      "SELECT ids FROM news_acknowledgements WHERE scope = $1", [scope]
+    );
+    const ids = result.rows[0]?.ids ?? [];
+    if (!Array.isArray(ids) || ids.length > 10_000 ||
+        ids.some((id) => typeof id !== "string" || !/^[a-f0-9]{40}$/.test(id))) {
+      throw new Error("Invalid persisted news acknowledgement window");
+    }
+    return ids as string[];
+  }
+
+  public async saveAcknowledgedNews(scope: string, ids: string[]): Promise<void> {
+    await this.pool.query(`
+      INSERT INTO news_acknowledgements (scope, ids) VALUES ($1, $2::jsonb)
+      ON CONFLICT (scope) DO UPDATE SET ids = EXCLUDED.ids, updated_at = NOW()
+    `, [scope, JSON.stringify(ids)]);
   }
 
   public async saveDecision(record: PersistedDecisionRecord): Promise<void> {
