@@ -155,3 +155,15 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Broker entry ownership
+
+Paper execution refuses a second entry while the broker owns an open position.
+Live execution is single-flight and checks both caller state and a fresh exchange
+position before changing leverage or placing entry/protection orders. Existing
+local trade ownership also blocks a new entry. This is a process-local defense;
+it cannot fence another client trading the same account between the check and
+order submission. After an entry request is sent, an error leaves an uncertain
+entry latch: reconcile exchange orders/positions before replacing the broker or
+restarting, rather than retrying an entry blindly. This change does not implement
+recovery of protective-order failures or external exit bookkeeping.
