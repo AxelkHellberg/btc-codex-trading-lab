@@ -2,7 +2,7 @@ import type { Logger } from "pino";
 
 import type { AppConfig } from "../config.js";
 import type { OnchainSnapshot } from "../domain/types.js";
-import { fetchJson } from "../lib/http.js";
+import { fetchJson, fetchText } from "../lib/http.js";
 
 type MempoolResponse = {
   count: number;
@@ -51,9 +51,7 @@ export class OnchainIngestor {
       const [mempool, fees, tipHeight, difficulty] = await Promise.all([
         fetchJson<MempoolResponse>(`${this.config.onchainBaseUrl}/mempool`),
         fetchJson<FeesResponse>(`${this.config.onchainBaseUrl}/v1/fees/recommended`),
-        fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`).then(async (response) =>
-          Number(await response.text())
-        ),
+        fetchText(`${this.config.onchainBaseUrl}/blocks/tip/height`).then((value) => Number(value)),
         fetchJson<DifficultyResponse>(`${this.config.onchainBaseUrl}/v1/difficulty-adjustment`)
       ]);
 

@@ -155,3 +155,7 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Shared HTTP request deadline
+
+`fetchJson` and `fetchText` apply one timeout budget (10 seconds by default) to header arrival and the entire body read, including HTTP error bodies. Expiry aborts the transport and rejects with `RequestTimeoutError`; an explicit caller abort keeps its original reason. Successful completion removes the deadline and abort listener. This bounds elapsed waiting, not the size of successful bodies; the separate bounded-error-diagnostic change still needs to be reconciled when combining drafts.
