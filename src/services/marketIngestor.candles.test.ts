@@ -21,7 +21,11 @@ const frame = (i: number, closed = true) => ({ stream: "btcusdt@kline_1m", data:
   }
 } });
 
-afterEach(() => { vi.restoreAllMocks(); });
+const services: MarketIngestor[] = [];
+afterEach(async () => {
+  for (const service of services.splice(0)) await service.stop();
+  vi.restoreAllMocks();
+});
 
 async function fixture(history: Bar[]) {
   const client = new BinanceFuturesClient("https://unused.invalid", "wss://unused.invalid", "", "", {} as Logger);
@@ -37,7 +41,8 @@ async function fixture(history: Bar[]) {
     { onMarket, onAccount: vi.fn(), onPosition: vi.fn() });
   const inspect = service as unknown as Inspect;
   vi.spyOn(inspect, "connectMarketSocket").mockImplementation(() => {});
-  try { await service.start(); } finally { await service.stop(); }
+  services.push(service);
+  await service.start();
   return { service, inspect, onMarket };
 }
 

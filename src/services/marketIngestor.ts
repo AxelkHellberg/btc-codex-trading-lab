@@ -64,6 +64,11 @@ export class MarketIngestor {
   private candleHistory: MinuteBar[] = [];
   private lastOpenInterest = 0;
   private filtersLoaded = false;
+  private stopped = false;
+  private historyGeneration = 0;
+  private historyRepair: Promise<void> | null = null;
+  private historyRetryAfter = 0;
+  private historyChanged = false;
 
   public constructor(
     private readonly config: AppConfig,
@@ -73,6 +78,8 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.stopped = false;
+    this.historyGeneration += 1;
     const filters = await this.client.getSymbolFilters(this.config.symbol);
     this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
     const candles = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
@@ -81,7 +88,7 @@ export class MarketIngestor {
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
     this.lastOpenInterest = this.snapshot.openInterest;
     this.filtersLoaded = true;
-    await this.callbacks.onMarket(this.snapshot);
+    await this.publishMarket(this.snapshot, now);
     await this.refreshSupplemental();
     this.connectMarketSocket();
     this.refreshTimer = setInterval(() => {
@@ -94,6 +101,8 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.stopped = true;
+    this.historyGeneration += 1;
     this.client.stopUserStreamKeepalive();
     this.marketSocket?.close();
     this.userSocket?.close();
@@ -112,7 +121,7 @@ export class MarketIngestor {
     });
     this.marketSocket.on("close", () => {
       this.logger.warn("Market websocket closed; reconnecting in 3s");
-      setTimeout(() => this.connectMarketSocket(), 3_000);
+      setTimeout(() => { if (!this.stopped) this.connectMarketSocket(); }, 3_000);
     });
     this.marketSocket.on("error", (error) => {
       this.logger.warn({ error }, "Market websocket error");
@@ -149,7 +158,7 @@ export class MarketIngestor {
 
   private async handleMarketMessage(raw: string): Promise<void> {
     const payload = JSON.parse(raw) as CombinedStreamMessage;
-    if (!this.snapshot) {
+    if (!this.snapshot || this.stopped) {
       return;
     }
 
@@ -207,16 +216,16 @@ export class MarketIngestor {
         Number(data.k.h),
         Number(data.k.l)
       );
-      await this.callbacks.onMarket(this.snapshot);
+      await this.publishMarket(this.snapshot, data.E, Number(data.k.h), Number(data.k.l));
       return;
     }
 
     this.snapshot = next;
-    await this.callbacks.onMarket(next);
+    await this.publishMarket(next, data.E);
   }
 
   private async refreshSupplemental(): Promise<void> {
-    if (!this.snapshot) {
+    if (!this.snapshot || this.stopped) {
       return;
     }
 
@@ -253,7 +262,7 @@ export class MarketIngestor {
         Math.min(next.lastPrice, next.markPrice)
       );
       this.lastOpenInterest = openInterest;
-      await this.callbacks.onMarket(this.snapshot);
+      await this.publishMarket(this.snapshot, Date.now());
       if (account) {
         await this.callbacks.onAccount(account);
       }
@@ -263,6 +272,69 @@ export class MarketIngestor {
     } catch (error) {
       this.logger.warn({ error, filtersLoaded: this.filtersLoaded }, "Failed to refresh supplemental market data");
     }
+  }
+
+  private historyIsReady(at: number): boolean {
+    if (!Number.isSafeInteger(at)) return false;
+    const currentMinute = Math.floor(at / 60_000) * 60_000;
+    const recent = this.candleHistory.filter(bar => bar.closeTime < at).slice(-240);
+    if (recent.length === 0 || recent.at(-1)!.openTime !== currentMinute - 60_000) return false;
+    return recent.every((bar, index) => index === 0 || bar.openTime - recent[index - 1]!.openTime === 60_000);
+  }
+
+  private async publishMarket(snapshot: MarketSnapshot, at: number, high = snapshot.lastPrice, low = snapshot.lastPrice): Promise<void> {
+    if (this.stopped) return;
+    if (!this.historyIsReady(at)) {
+      this.repairHistory();
+      return; // Keep quote updates internal until their derived history is contiguous.
+    }
+    this.snapshot = this.historyChanged
+      ? this.applyDerivedMetrics(snapshot, snapshot.lastPrice, snapshot.volume1m, high, low)
+      : snapshot;
+    this.historyChanged = false;
+    await this.callbacks.onMarket(this.snapshot);
+  }
+
+  private repairHistory(): void {
+    if (this.stopped || this.historyRepair || Date.now() < this.historyRetryAfter) return;
+    const generation = this.historyGeneration;
+    let expired = false;
+    const deadline = setTimeout(() => {
+      expired = true;
+      this.logger.warn("Market candle recovery exceeded 10 seconds; snapshots remain suppressed");
+    }, 10_000);
+    const pending = this.client.getRecentKlines(this.config.symbol, "1m", 240).then(rows => {
+      if (expired || this.stopped || generation !== this.historyGeneration) return;
+      if (!Array.isArray(rows) || rows.length === 0 || rows.length > 240 || rows.some(bar =>
+        !Number.isSafeInteger(bar.openTime) || bar.openTime % 60_000 !== 0 ||
+        bar.closeTime !== bar.openTime + 59_999 ||
+        ![bar.close, bar.high, bar.low, bar.volume].every(Number.isFinite) ||
+        bar.low <= 0 || bar.close < bar.low || bar.close > bar.high || bar.volume < 0)) {
+        throw new Error("Invalid recovery candle page");
+      }
+      const completed = rows.filter(bar => bar.closeTime < Date.now());
+      // Socket rows can arrive while REST is in flight. Their canonical final values win.
+      const merged = new Map(completed.map(bar => [bar.openTime, bar]));
+      for (const bar of this.candleHistory) merged.set(bar.openTime, bar);
+      const history = [...merged.values()].sort((a, b) => a.openTime - b.openTime).slice(-240);
+      const previous = this.candleHistory;
+      this.candleHistory = history;
+      if (history.length < 60 || !this.historyIsReady(Date.now())) {
+        this.candleHistory = previous;
+        throw new Error("Recovery candle page is stale or discontinuous");
+      }
+      this.historyChanged = true;
+    }).catch(error => {
+      if (!this.stopped && generation === this.historyGeneration) {
+        this.logger.warn({ error }, "Failed to recover contiguous market candles");
+      }
+    }).finally(() => {
+      clearTimeout(deadline);
+      if (this.historyRepair === pending) this.historyRepair = null;
+      this.historyRetryAfter = Date.now() + 3_000;
+    });
+    // A timed-out request remains single-flight until it actually settles. Never flood REST.
+    this.historyRepair = pending;
   }
 
   private applyDerivedMetrics(
