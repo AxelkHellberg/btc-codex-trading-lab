@@ -24,47 +24,52 @@ type TimedRequestInit = RequestInit & {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-async function fetchWithTimeout(input: string, init?: TimedRequestInit): Promise<Response> {
-  const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const signal = init?.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
-
-  try {
-    return await fetch(input, {
-      ...init,
-      signal
-    });
-  } catch (error) {
-    if (timeoutSignal.aborted && !(init?.signal?.aborted ?? false)) {
-      throw new RequestTimeoutError(`Request timed out after ${timeoutMs}ms`, timeoutMs);
+async function consumeWithTimeout<T>(
+  input: string,
+  init: TimedRequestInit | undefined,
+  consume: (response: Response) => Promise<T>
+): Promise<T> {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...requestInit } = init ?? {};
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 2_147_483_647) {
+    throw new RangeError("timeoutMs must be a nonnegative 32-bit integer");
+  }
+  const controller = new AbortController();
+  const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+  signal.throwIfAborted();
+  const timer = setTimeout(() => {
+    controller.abort(new RequestTimeoutError(`Request timed out after ${timeoutMs}ms`, timeoutMs));
+  }, timeoutMs);
+  let rejectAbort: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", rejectAbort, { once: true });
+  });
+  const operation = async (): Promise<T> => {
+    const response = await fetch(input, { ...requestInit, signal });
+    if (signal.aborted) {
+      void response.body?.cancel().catch(() => {});
+      signal.throwIfAborted();
     }
-
-    throw error;
+    if (!response.ok) {
+      throw new HttpError(await response.text(), response.status);
+    }
+    return await consume(response);
+  };
+  try {
+    return await Promise.race([operation(), aborted]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", rejectAbort);
   }
 }
 
 export async function fetchText(input: string, init?: TimedRequestInit): Promise<string> {
-  const response = await fetchWithTimeout(input, init);
-
-  if (!response.ok) {
-    throw new HttpError(await response.text(), response.status);
-  }
-
-  return await response.text();
+  return consumeWithTimeout(input, init, (response) => response.text());
 }
 
 export async function fetchJson<T>(input: string, init?: TimedRequestInit): Promise<T> {
-  const response = await fetchWithTimeout(input, {
+  return consumeWithTimeout(input, {
     ...init,
-    headers: {
-      accept: "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
-
-  if (!response.ok) {
-    throw new HttpError(await response.text(), response.status);
-  }
-
-  return (await response.json()) as T;
+    headers: { accept: "application/json", ...(init?.headers ?? {}) }
+  }, async (response) => (await response.json()) as T);
 }
