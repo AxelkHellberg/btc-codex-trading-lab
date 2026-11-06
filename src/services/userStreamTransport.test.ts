@@ -32,6 +32,7 @@ async function start() {
     getBalanceState: vi.fn().mockResolvedValue({}),
     getPositionState: vi.fn().mockResolvedValue({}),
     getCombinedMarketStreamUrl: vi.fn().mockReturnValue("wss://offline.invalid/stream"),
+    closeUserStream: vi.fn().mockResolvedValue(undefined),
     startUserStream: vi.fn().mockResolvedValue("synthetic-secret-key"),
     startUserStreamKeepalive: vi.fn(),
     stopUserStreamKeepalive: vi.fn(),
