@@ -76,3 +76,22 @@ describe("response-body deadline", () => {
     expect(received?.aborted).toBe(true);
   });
 });
+
+it.each(["text", "json", "error"] as const)("normalizes a stalled native HTTP %s body", async (kind) => {
+  const { createServer } = await import("node:http");
+  const server = createServer((_request, response) => {
+    response.writeHead(kind === "error" ? 503 : 200);
+    response.write(kind === "json" ? '{"value":' : "partial body");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No loopback listener");
+  try {
+    const url = `http://127.0.0.1:${address.port}`;
+    const request = kind === "text" ? fetchText(url, { timeoutMs: 100 }) : fetchJson(url, { timeoutMs: 100 });
+    await expect(request).rejects.toBeInstanceOf(RequestTimeoutError);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
