@@ -152,4 +152,20 @@ describe("PaperBroker", () => {
     expect(close?.tradeRecord?.exitReason).toBe("trailing_stop");
     expect(close?.positionState.side).toBe("flat");
   });
+  it("preserves the open trade and balance when stale runtime state requests a second entry", async () => {
+    const broker = new PaperBroker(config);
+    const plan: ExecutionPlan = {
+      action: "LONG", side: "BUY", entryType: "MARKET", leverage: 2,
+      quantity: 0.02, notionalUsd: 2000, entryPrice: 100000, confidence: 0.8,
+      setupType: "breakout", regimeAtEntry: "trend_up", entryReason: "test", reasoningSummary: "test"
+    };
+    const first = await broker.execute(plan, context());
+    const before = broker.getState();
+    const second = await broker.execute({ ...plan, action: "SHORT", side: "SELL" }, context());
+    expect(first.accepted).toBe(true);
+    expect(second.accepted).toBe(false);
+    expect(second.tradeId).toBe(first.tradeId);
+    expect(broker.getState()).toEqual(before);
+  });
+
 });

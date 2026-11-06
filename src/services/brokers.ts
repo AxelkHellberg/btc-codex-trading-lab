@@ -56,6 +56,13 @@ export class PaperBroker implements Broker {
 
   public async execute(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
     if (plan.action === "LONG" || plan.action === "SHORT") {
+      if (this.position.side !== "flat" || this.position.quantity !== 0) {
+        return {
+          tradeId: this.position.sourceTradeId ?? randomUUID(), accepted: false, broker: this.name,
+          message: "Entry rejected: broker position is not flat",
+          positionState: { ...this.position }, accountState: { ...this.account }
+        };
+      }
       return this.openPosition(plan, context.market_snapshot);
     }
 
@@ -509,6 +516,8 @@ export class PaperBroker implements Broker {
 
 export class LiveBroker implements Broker {
   public readonly name = "binance-live";
+  private executing = false;
+  private entryUncertain = false;
   private activeTrade: PersistedTradeRecord | null = null;
 
   public constructor(
@@ -518,10 +527,29 @@ export class LiveBroker implements Broker {
   ) {}
 
   public async execute(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
+    if (this.executing) throw new Error("Broker execution already in progress");
+    this.executing = true;
+    try {
+      return await this.executeExclusive(plan, context);
+    } finally {
+      this.executing = false;
+    }
+  }
+
+  private async executeExclusive(plan: ExecutionPlan, context: DecisionContext): Promise<ExecutionResult> {
     const tradeId = context.position_state.sourceTradeId ?? randomUUID();
 
     if (plan.action === "LONG" || plan.action === "SHORT") {
+      if (this.entryUncertain || this.activeTrade !== null ||
+          context.position_state.side !== "flat" || context.position_state.quantity !== 0) {
+        throw new Error("Entry rejected: existing or uncertain broker position");
+      }
+      const current = await this.client.getPositionState(this.config.symbol);
+      if (current.side !== "flat" || current.quantity !== 0) {
+        throw new Error("Entry rejected: exchange position is not flat");
+      }
       await this.client.changeLeverage(this.config.symbol, plan.leverage);
+      this.entryUncertain = true;
       const openOrder = await this.client.createOrder({
         symbol: this.config.symbol,
         side: plan.side,
@@ -593,6 +621,7 @@ export class LiveBroker implements Broker {
         updatedAt: now
       };
 
+      this.entryUncertain = false;
       return {
         tradeId,
         accepted: true,
