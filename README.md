@@ -155,3 +155,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Live account refresh and risk history
+
+Exchange account refreshes update balances, equity, available margin, open-order count and timestamps while preserving application-owned daily PnL, weekly drawdown, loss streak and last-loss time. Both ingestor refreshes and live broker execution results use this merge. Full `setAccount` updates remain authoritative for paper results and restored application snapshots.
+
+This change prevents refreshes from clearing established risk history; it does not populate missing live realized-fill history, roll live calendar windows, or implement restart restoration. Those paths must supply authoritative risk history separately.

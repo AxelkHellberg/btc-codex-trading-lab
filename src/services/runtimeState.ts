@@ -76,6 +76,18 @@ export class RuntimeState {
     this.account = account;
   }
 
+  /** Exchange balances do not contain the application-owned risk history. */
+  public syncExchangeAccount(account: AccountState): void {
+    this.setAccount({
+      ...this.account,
+      ...account,
+      dailyPnl: this.account.dailyPnl,
+      weeklyDrawdown: this.account.weeklyDrawdown,
+      consecutiveLosses: this.account.consecutiveLosses,
+      lastLossAt: this.account.lastLossAt
+    });
+  }
+
   public setPosition(position: PositionState): void {
     this.position = position;
   }
