@@ -60,7 +60,11 @@ export class ExecutionEngine {
   }
 
   public async handleExecutionResult(result: Awaited<ReturnType<Broker["execute"]>>, fallbackReasoning?: string): Promise<void> {
-    this.runtime.setAccount(result.accountState);
+    if (this.config.tradingMode === "live") {
+      this.runtime.syncExchangeAccount(result.accountState);
+    } else {
+      this.runtime.setAccount(result.accountState);
+    }
     this.runtime.setPosition(result.positionState);
 
     if (result.tradeRecord) {

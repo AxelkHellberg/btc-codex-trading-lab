@@ -103,9 +103,10 @@ const main = async (): Promise<void> => {
       }
     },
     onAccount: async (account) => {
-      runtime.setAccount(account);
-      await store.saveSnapshot("account", account);
-      await hotStore.setJson("latest:account", account, 300);
+      runtime.syncExchangeAccount(account);
+      const mergedAccount = runtime.getAccount();
+      await store.saveSnapshot("account", mergedAccount);
+      await hotStore.setJson("latest:account", mergedAccount, 300);
     },
     onPosition: async (position) => {
       runtime.setPosition(position);
