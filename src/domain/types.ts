@@ -278,3 +278,16 @@ export interface PersistedDecisionRecord {
   reasons: string[];
   createdAt: number;
 }
+
+/** A broker exception does not establish whether an exchange order executed. */
+export interface ExecutionAttemptRecord {
+  attemptId: string;
+  decisionId: string;
+  broker: string;
+  action: ExecutionPlan["action"];
+  quantity: number;
+  status: "started" | "accepted" | "rejected" | "unknown";
+  phase: "broker.execute";
+  createdAt: number;
+  updatedAt: number;
+}
