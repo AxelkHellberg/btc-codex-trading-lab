@@ -172,3 +172,18 @@ and mocked REST methods; this behavior has not been exercised against a live exc
 ### Market stream recovery
 
 A market connection that delivers no frames for 30 seconds is terminated and replaced. Supplemental REST success does not reset this transport deadline. Recovery delays grow from 3 to 30 seconds and reset after a stream message; retired connection events cannot replace or publish over the current connection. Shutdown clears both the watchdog and pending recovery. This transport policy does not establish quote freshness or repair missing historical candles.
+
+
+### Supplemental market refresh lifecycle
+
+The minute REST refresh holds one in-flight slot through all sibling requests and
+callback delivery. Slow polls skip subsequent timer ticks. Stop invalidates the
+session so late results cannot update the snapshot or admit more callbacks;
+restart waits for the old network work before starting a new session. A callback
+already entered before stop cannot be cancelled by the ingestor, and underlying
+HTTP deadlines still determine how long outstanding requests take to settle.
+
+This change is stacked on #368. Integrating it with the independent supplemental
+result delivery (#334), source ordering (#377), or user-stream cleanup (#389)
+requires retaining the generation checks around every awaited sink. It does not
+resolve concurrent duplicate `start()` calls (#151).
