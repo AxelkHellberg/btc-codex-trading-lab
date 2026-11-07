@@ -154,6 +154,11 @@ has no broker-owned protection template after restart, existing protection stays
 in place rather than being cancelled without a replacement.
 
 Confirmed reductions with an owned template retain this branch's existing
-cancel-and-rearm path. Replacement can still fail after a confirmed fill; durable
-fill accounting and post-fill protection-failure recovery remain separate work
-(#44, #144). Offline regressions do not establish live exchange behavior.
+cancel-and-rearm path. A subsequent cancellation or replacement failure returns
+an accepted fill with `protectionFailure`, updated account/position/trade state,
+and a warning in the normal execution message and trade details. It never retries
+the market exit or blindly repeats uncertain protection requests. Reconcile and
+restore protection immediately; automatic remediation and actual fill fees/PnL
+(#44) remain separate work. The normal accepted-execution notifier can still be
+blocked by an independent persistence failure (#247). Offline regressions do not
+establish live exchange behavior.

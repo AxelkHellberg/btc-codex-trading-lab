@@ -231,6 +231,7 @@ export interface ExecutionResult {
   positionState: PositionState;
   accountState: AccountState;
   tradeRecord?: PersistedTradeRecord;
+  protectionFailure?: "cancellation_failed" | "replacement_failed";
   raw?: unknown;
 }
 

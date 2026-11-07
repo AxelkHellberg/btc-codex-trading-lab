@@ -610,17 +610,32 @@ export class LiveBroker implements Broker {
     }
     // A restarted broker may not own a protection template. Preserve existing
     // orders on residual exposure rather than cancelling without a replacement.
-    if (flat || this.activeTrade) await this.client.cancelAllOrders(this.config.symbol);
-    if (positionState.quantity > 0 && this.activeTrade) {
-      await this.placeProtectionOrders(
-        tradeId,
-        this.activeTrade.side,
-        positionState.quantity,
-        this.activeTrade.stopLoss,
-        this.activeTrade.takeProfit,
-        "remaining"
-      );
+    let protectionFailure: ExecutionResult["protectionFailure"];
+    if (flat || this.activeTrade) {
+      try {
+        await this.client.cancelAllOrders(this.config.symbol);
+      } catch {
+        protectionFailure = "cancellation_failed";
+      }
     }
+    if (!protectionFailure && positionState.quantity > 0 && this.activeTrade) {
+      try {
+        await this.placeProtectionOrders(
+          tradeId,
+          this.activeTrade.side,
+          positionState.quantity,
+          this.activeTrade.stopLoss,
+          this.activeTrade.takeProfit,
+          "remaining"
+        );
+      } catch {
+        protectionFailure = "replacement_failed";
+      }
+    }
+    const message = `Live ${plan.action.toLowerCase()} executed` + (protectionFailure
+      ? `; WARNING: protection ${protectionFailure}; reconcile orders immediately without repeating the exit`
+      : "");
+    if (protectionFailure) this.logger.error({ tradeId, protectionFailure }, "Live exit filled but protection requires reconciliation");
     const now = Date.now();
     const tradeRecord =
       this.activeTrade === null
@@ -633,7 +648,8 @@ export class LiveBroker implements Broker {
             closedAt: positionState.quantity > 0 ? undefined : now,
             holdingMinutes: positionState.quantity > 0 ? undefined : (now - this.activeTrade.openedAt) / 60_000,
             details: {
-              message: `Live ${plan.action.toLowerCase()} executed`,
+              message,
+              protectionFailure,
               raw: closeOrder,
               reasoning: plan.reasoningSummary
             },
@@ -650,7 +666,8 @@ export class LiveBroker implements Broker {
       tradeId,
       accepted: true,
       broker: this.name,
-      message: `Live ${plan.action.toLowerCase()} executed`,
+      message,
+      protectionFailure,
       positionState,
       accountState,
       tradeRecord,

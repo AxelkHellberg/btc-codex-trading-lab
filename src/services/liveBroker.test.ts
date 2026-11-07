@@ -236,12 +236,13 @@ const exitSetup = () => {
     regimeAtEntry: "trend_up", entryReason: "Exit regression", reasoningSummary: "Exit regression"
   };
   const client = {
+    changeLeverage: vi.fn().mockResolvedValue(undefined),
     createOrder: vi.fn().mockResolvedValue({ orderId: 1, status: "FILLED" }),
     cancelAllOrders: vi.fn().mockResolvedValue(undefined),
     getBalanceState: vi.fn().mockResolvedValue(ctx.account_state),
     getPositionState: vi.fn().mockResolvedValue({ ...ctx.position_state, side: "flat", quantity: 0 })
   };
-  const broker = new LiveBroker(liveConfig, client as never, { warn: vi.fn() } as never);
+  const broker = new LiveBroker(liveConfig, client as never, { warn: vi.fn(), error: vi.fn() } as never);
   return { ctx, plan, client, broker };
 };
 const deferred = <T,>() => {
@@ -295,4 +296,37 @@ it("keeps existing residual protection when the broker has no owned replacement 
   expect(result.accepted).toBe(true);
   expect(result.positionState.quantity).toBe(0.01);
   expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+});
+
+it.each(["cancel", "stop", "takeProfit"])("preserves an accepted reduction when post-fill %s fails", async (failure) => {
+  const x = exitSetup(); const openPosition = x.ctx.position_state;
+  x.client.getPositionState.mockResolvedValueOnce(openPosition as never);
+  const opened = await x.broker.execute({ ...x.plan, action: "LONG", side: "BUY", stopLoss: 99_000, tp2: 103_000 }, context());
+  x.ctx.position_state.sourceTradeId = opened.tradeId;
+  x.client.getPositionState.mockResolvedValueOnce({ ...openPosition, quantity: 0.01 } as never);
+  if (failure === "cancel") x.client.cancelAllOrders.mockRejectedValueOnce(new Error("private payload"));
+  else x.client.createOrder.mockImplementation(async (order: unknown) => {
+    const type = (order as { type: string }).type;
+    if (type === (failure === "stop" ? "STOP_MARKET" : "TAKE_PROFIT_MARKET")) throw new Error("private payload");
+    return { orderId: 1, status: "FILLED" };
+  });
+  const result = await x.broker.execute({ ...x.plan, action: "REDUCE", quantity: 0.01 }, x.ctx);
+  expect(result.accepted).toBe(true);
+  expect(result.positionState.quantity).toBe(0.01);
+  expect(result.protectionFailure).toBe(failure === "cancel" ? "cancellation_failed" : "replacement_failed");
+  expect(result.tradeRecord).toMatchObject({ remainingQuantity: 0.01, status: "partial",
+    details: { protectionFailure: result.protectionFailure } });
+  expect(result.message).toContain("WARNING"); expect(result.message).not.toContain("private payload");
+  expect(x.client.createOrder.mock.calls.filter(([order]) => (order as { type: string }).type === "MARKET")).toHaveLength(2);
+});
+it("preserves the closed trade when post-fill cancellation fails", async () => {
+  const x = exitSetup();
+  x.client.getPositionState.mockResolvedValueOnce(x.ctx.position_state as never);
+  const opened = await x.broker.execute({ ...x.plan, action: "LONG", side: "BUY" }, context());
+  x.ctx.position_state.sourceTradeId = opened.tradeId;
+  x.client.cancelAllOrders.mockRejectedValueOnce(new Error("uncertain cancellation"));
+  const result = await x.broker.execute(x.plan, x.ctx);
+  expect(result.accepted).toBe(true);
+  expect(result.protectionFailure).toBe("cancellation_failed");
+  expect(result.tradeRecord).toMatchObject({ status: "closed", remainingQuantity: 0 });
 });
