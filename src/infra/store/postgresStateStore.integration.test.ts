@@ -4,6 +4,7 @@ import pino from "pino";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { DecisionContext, ExecutionPlan, PersistedDecisionRecord, PersistedTradeRecord } from "../../domain/types.js";
+import { RuntimeState } from "../../services/runtimeState.js";
 import { PostgresStateStore } from "./postgresStateStore.js";
 
 // Explicit opt-in only. Every run owns a random schema, never public tables.
@@ -14,6 +15,7 @@ suite("PostgresStateStore real database contract", () => {
   let admin: Pool;
   let query: Pool;
   let store: PostgresStateStore;
+  let storeUrl: string;
   beforeAll(async () => {
     const url = new URL(connectionString!);
     if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
@@ -23,7 +25,8 @@ suite("PostgresStateStore real database contract", () => {
     await admin.query(`CREATE SCHEMA ${schema}`);
     url.searchParams.set("options", `-c search_path=${schema}`);
     query = new Pool({ connectionString: url.toString(), connectionTimeoutMillis: 2_000, query_timeout: 5_000 });
-    store = new PostgresStateStore(url.toString(), pino({ enabled: false }));
+    storeUrl = url.toString();
+    store = new PostgresStateStore(storeUrl, pino({ enabled: false }));
     await store.init();
   }, 10_000);
   afterAll(async () => {
@@ -82,6 +85,53 @@ suite("PostgresStateStore real database contract", () => {
     expect(rows[0].closed_at.getTime()).toBe(record.openedAt + 60_000);
     expect(rows[0].updated_at.getTime()).toBe(record.updatedAt + 60_000);
   });
+  it("reloads bounded, mode-separated audit history after closing and reopening the store", async () => {
+    expect(await store.loadRecentHistory("live")).toEqual({ decisions: [], trades: [] });
+    const base = 1_800_000_000_123;
+    for (let index = 0; index < 30; index++) {
+      const id = String(index).padStart(2, "0");
+      const at = base + Math.min(index, 28) * 1000; // ties must have stable ID order
+      await store.saveDecision({
+        decisionId: `history-${id}`, approved: true, mode: "live",
+        trigger: { reason: "minute_recheck", priority: 0, details: "history", triggeredAt: at },
+        context: { onchain_snapshot: null, fixture: index } as unknown as DecisionContext,
+        signal: { bias: "FLAT", confidence: 0.5, setup_type: "continuation", holding_horizon_minutes: 1, reasoning_summary: "history" },
+        reasons: [], createdAt: at
+      });
+      await store.saveTrade({
+        tradeId: `history-${id}`, mode: "live", action: "LONG", side: "BUY", quantity: 1,
+        remainingQuantity: 0, leverage: 2, entryPrice: 100, confidence: 0.8, status: "closed", entryReason: "history",
+        entryFee: 1, exitFee: 1, grossPnl: 3, netPnl: 1, mfe: 2, mae: -1,
+        openedAt: at, closedAt: at + 500, holdingMinutes: 0.5 / 60,
+        details: { nested: null, index }, createdAt: at, updatedAt: at + 500
+      });
+    }
+    const history = await store.loadRecentHistory("live", 3);
+    expect(history.decisions.map(d => d.decisionId)).toEqual(["history-29", "history-28", "history-27"]);
+    expect(history.trades.map(t => t.tradeId)).toEqual(["history-29", "history-28", "history-27"]);
+    expect(history.decisions[0]).toMatchObject({ context: { onchain_snapshot: null, fixture: 29 }, createdAt: base + 28000 });
+    expect(history.decisions[0]).not.toHaveProperty("plan");
+    expect(history.trades[0]).toMatchObject({ details: { nested: null, index: 29 }, openedAt: base + 28000, closedAt: base + 28500 });
+    expect(history.trades[0]).not.toHaveProperty("stopLoss");
+    expect((await store.loadRecentHistory("live")).trades).toHaveLength(25);
+    expect((await store.loadRecentHistory("paper")).trades.every(t => t.mode === "paper")).toBe(true);
+    const updated = { ...history.trades[2]!, updatedAt: base + 100000, netPnl: 8 };
+    await store.saveTrade(updated);
+    // Legacy nullable fields must yield safe domain defaults rather than null arithmetic.
+    await query.query("UPDATE trades SET entry_fee=NULL, remaining_quantity=NULL, opened_at=NULL WHERE trade_id=$1", [updated.tradeId]);
+    const restartedStore = new PostgresStateStore(storeUrl, pino({ enabled: false }));
+    try {
+      const restored = await restartedStore.loadRecentHistory("live");
+      expect(restored.trades[0]).toMatchObject({ tradeId: updated.tradeId, netPnl: 8, entryFee: 0, remainingQuantity: 0, openedAt: updated.createdAt });
+      const runtime = new RuntimeState(10000);
+      for (const d of [...restored.decisions].reverse()) runtime.pushDecision(d);
+      for (const t of [...restored.trades].reverse()) runtime.upsertTrade(t);
+      expect(runtime.getRecentTrades()).toHaveLength(25);
+      expect(runtime.getTradeStats().realizedPnl).toBe(32);
+      expect(runtime.getPosition().side).toBe("flat"); expect(runtime.getAccount().equity).toBe(10000);
+    } finally { await restartedStore.close(); }
+  });
+
   it("updates one heartbeat row per service", async () => {
     await store.heartbeat("contract-service", { sequence: 1 });
     await store.heartbeat("contract-service", { sequence: 2, nested: { ok: true } });
