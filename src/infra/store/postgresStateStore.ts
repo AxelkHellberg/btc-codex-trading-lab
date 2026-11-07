@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import type { Logger } from "pino";
 
-import type { PersistedDecisionRecord, PersistedTradeRecord } from "../../domain/types.js";
+import type { PersistedDecisionRecord, PersistedTradeRecord, TradingMode } from "../../domain/types.js";
 
 export class PostgresStateStore {
   private readonly pool: Pool;
@@ -88,6 +88,8 @@ export class PostgresStateStore {
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ NULL;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS holding_minutes DOUBLE PRECISION NULL;
       ALTER TABLE trades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      CREATE INDEX IF NOT EXISTS decisions_recent_mode_idx ON decisions (mode, created_at DESC, decision_id DESC);
+      CREATE INDEX IF NOT EXISTS trades_recent_mode_idx ON trades (mode, updated_at DESC, trade_id DESC);
     `);
   }
 
@@ -194,6 +196,63 @@ export class PostgresStateStore {
         record.updatedAt
       ]
     );
+  }
+
+  public async loadRecentHistory(mode: TradingMode, limit = 25): Promise<{
+    decisions: PersistedDecisionRecord[];
+    trades: PersistedTradeRecord[];
+  }> {
+    if ((mode !== "paper" && mode !== "live") || !Number.isInteger(limit) || limit < 1 || limit > 25) {
+      throw new Error("History requires a trading mode and a limit between 1 and 25");
+    }
+    // Only persisted audit history is restored. These records never restore
+    // broker balances, open positions, orders, or execution authority.
+    const [decisions, trades] = await Promise.all([
+      this.pool.query<{ record: PersistedDecisionRecord }>(`
+        SELECT jsonb_build_object(
+          'decisionId', decision_id, 'approved', approved, 'mode', mode,
+          'trigger', trigger, 'context', context, 'signal', decision,
+          'plan', plan, 'reasons', reasons,
+          'createdAt', (EXTRACT(EPOCH FROM created_at) * 1000)::double precision
+        ) AS record FROM decisions WHERE mode = $1
+        ORDER BY created_at DESC, decision_id DESC LIMIT $2
+      `, [mode, limit]),
+      this.pool.query<{ record: PersistedTradeRecord }>(`
+        SELECT jsonb_build_object(
+          'tradeId', trade_id, 'mode', mode, 'action', action, 'side', side,
+          'revision', to_jsonb(trades)->'revision',
+          'quantity', quantity,
+          'remainingQuantity', COALESCE(remaining_quantity, CASE WHEN status = 'closed' THEN 0 ELSE quantity END),
+          'leverage', leverage, 'entryPrice', entry_price, 'stopLoss', stop_loss,
+          'takeProfit', take_profit, 'tp1', tp1, 'tp2', tp2, 'confidence', confidence,
+          'setupType', setup_type, 'status', status, 'entryReason', COALESCE(entry_reason, ''),
+          'exitReason', exit_reason, 'regimeAtEntry', regime_at_entry,
+          'entryFee', COALESCE(entry_fee, 0), 'exitFee', COALESCE(exit_fee, 0),
+          'grossPnl', COALESCE(gross_pnl, 0), 'netPnl', COALESCE(net_pnl, 0),
+          'mfe', COALESCE(mfe, 0), 'mae', COALESCE(mae, 0),
+          'openedAt', (EXTRACT(EPOCH FROM COALESCE(opened_at, created_at)) * 1000)::double precision,
+          'closedAt', (EXTRACT(EPOCH FROM closed_at) * 1000)::double precision,
+          'holdingMinutes', holding_minutes, 'details', details,
+          'createdAt', (EXTRACT(EPOCH FROM created_at) * 1000)::double precision,
+          'updatedAt', (EXTRACT(EPOCH FROM updated_at) * 1000)::double precision
+        ) AS record FROM trades WHERE mode = $1
+        ORDER BY updated_at DESC, trade_id DESC LIMIT $2
+      `, [mode, limit])
+    ]);
+    // SQL NULL is not the domain's optional-field representation. Do not strip
+    // nested JSON nulls (for example context.onchain_snapshot or trade details).
+    const omitNullOptionals = <T extends object>(record: T, keys: string[]): T => {
+      for (const key of keys) {
+        if ((record as Record<string, unknown>)[key] === null) delete (record as Record<string, unknown>)[key];
+      }
+      return record;
+    };
+    return {
+      decisions: decisions.rows.map(({ record }) => omitNullOptionals(record, ["plan"])),
+      trades: trades.rows.map(({ record }) => omitNullOptionals(record, [
+        "revision", "stopLoss", "takeProfit", "tp1", "tp2", "setupType", "exitReason", "regimeAtEntry", "closedAt", "holdingMinutes"
+      ]))
+    };
   }
 
   public async heartbeat(serviceName: string, payload: unknown): Promise<void> {

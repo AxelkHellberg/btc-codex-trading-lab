@@ -38,6 +38,9 @@ const main = async (): Promise<void> => {
   const riskEngine = new RiskEngine(config);
 
   await store.init();
+  const history = await store.loadRecentHistory(config.tradingMode);
+  for (const decision of [...history.decisions].reverse()) runtime.pushDecision(decision);
+  for (const trade of [...history.trades].reverse()) runtime.upsertTrade(trade);
 
   const evaluateTrigger = async (trigger: {
     reason:

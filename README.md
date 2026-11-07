@@ -171,3 +171,20 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Dashboard history after restart
+
+Startup loads the latest 25 persisted decisions and 25 trade records for the
+configured paper/live mode before serving HTTP or starting ingestors. Trade order
+uses the latest update time. Dashboard performance remains a bounded recent-trade
+sample, not a lifetime account report. A history-read failure prevents startup
+rather than presenting an empty history as a successful recovery.
+
+This restores display/audit history only. It does not restore broker balances,
+open positions, pending orders, risk windows, or lost in-memory audit retries.
+Changing trading mode selects that mode's history. Existing audit revisions are retained when present in the database. Null fields in nested JSON
+remain intact; nullable legacy trade metrics default to zero for display.
+
+Initial history-index creation can briefly block writes on existing audit tables;
+review deployment timing for a large database. Rows with the same timestamp use
+their stable ID as a tie-breaker. No background history polling is added.
