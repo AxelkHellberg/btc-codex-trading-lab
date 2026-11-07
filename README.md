@@ -169,3 +169,9 @@ Any startup restoration must retain those fields with the account; the base
 application does not restore broker state across process restarts. Historical
 replay callers must advance the broker clock with replay time to use these
 calendar windows. Live account risk-history reconstruction remains separate.
+
+### Daily loss reference for runtime snapshots
+
+The runtime uses the paper broker's explicit `dailyLossReferenceBalance` when present. For exchange or older snapshots without that field, it recovers a reference from `walletBalance - dailyPnl` on the first observed snapshot of each UTC day and holds it fixed during that day. Intraday balance changes cannot enlarge the loss budget. Older timestamps do not reanchor it.
+
+This fallback assumes `dailyPnl` describes the same UTC day as `updatedAt`; it cannot infer deposits, withdrawals, or missing realized fills before the first observation. It does not synthesize live PnL history. On restart, snapshots without an explicit reference require that same reconstruction.

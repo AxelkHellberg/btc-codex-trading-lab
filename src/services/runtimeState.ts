@@ -18,6 +18,7 @@ export class RuntimeState {
   private news: NewsEvent[] = [];
   private account: AccountState;
   private position: PositionState;
+  private dailyLossReference: { day: number; balance: number } | null = null;
   private decisions: PersistedDecisionRecord[] = [];
   private trades: PersistedTradeRecord[] = [];
 
@@ -73,6 +74,17 @@ export class RuntimeState {
   }
 
   public setAccount(account: AccountState): void {
+    // Exchange/legacy snapshots do not carry the paper broker's explicit anchor.
+    // Recover the opening wallet from the first snapshot of each UTC day, then
+    // hold it fixed through intraday gains, losses, fees, and balance refreshes.
+    const day = Math.floor(account.updatedAt / 86_400_000);
+    const balance = account.walletBalance - account.dailyPnl;
+    if (
+      Number.isFinite(day) && Number.isFinite(balance) && balance >= 0 &&
+      (this.dailyLossReference === null || day > this.dailyLossReference.day)
+    ) {
+      this.dailyLossReference = { day, balance };
+    }
     this.account = account;
   }
 
@@ -106,7 +118,7 @@ export class RuntimeState {
     cooldownMinutes: number;
   }): RiskState {
     const reasons: string[] = [];
-    const referenceBalance = this.account.dailyLossReferenceBalance ?? this.account.walletBalance;
+    const referenceBalance = this.account.dailyLossReferenceBalance ?? this.dailyLossReference?.balance ?? this.account.walletBalance;
     const dailyLossHit = this.account.dailyPnl <= -policy.maxDailyLoss * referenceBalance;
     const weeklyDrawdownHit = this.account.weeklyDrawdown >= policy.maxWeeklyDrawdown;
     const cooldownActive =
