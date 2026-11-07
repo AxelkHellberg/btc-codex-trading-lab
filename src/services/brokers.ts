@@ -530,30 +530,7 @@ export class LiveBroker implements Broker {
         newOrderRespType: "RESULT",
         newClientOrderId: `entry-${tradeId}`
       });
-      if (plan.stopLoss !== undefined) {
-        await this.client.createOrder({
-          symbol: this.config.symbol,
-          side: plan.side === "BUY" ? "SELL" : "BUY",
-          type: "STOP_MARKET",
-          stopPrice: plan.stopLoss,
-          quantity: plan.quantity,
-          reduceOnly: true,
-          workingType: "CONTRACT_PRICE",
-          newClientOrderId: `stop-${tradeId}`
-        });
-      }
-      if (plan.tp2 !== undefined) {
-        await this.client.createOrder({
-          symbol: this.config.symbol,
-          side: plan.side === "BUY" ? "SELL" : "BUY",
-          type: "TAKE_PROFIT_MARKET",
-          stopPrice: plan.tp2,
-          quantity: plan.quantity,
-          reduceOnly: true,
-          workingType: "CONTRACT_PRICE",
-          newClientOrderId: `tp-${tradeId}`
-        });
-      }
+      await this.placeProtectionOrders(tradeId, plan.side, plan.quantity, plan.stopLoss, plan.tp2);
       const [accountState, positionState] = await Promise.all([
         this.client.getBalanceState(),
         this.client.getPositionState(this.config.symbol)
@@ -605,7 +582,6 @@ export class LiveBroker implements Broker {
       };
     }
 
-    await this.client.cancelAllOrders(this.config.symbol);
     const closeOrder = await this.client.createOrder({
       symbol: this.config.symbol,
       side: plan.side,
@@ -615,10 +591,51 @@ export class LiveBroker implements Broker {
       newOrderRespType: "RESULT",
       newClientOrderId: `close-${tradeId}`
     });
+    // RESULT can still describe an unfilled or partially filled order. Keep the
+    // existing reduce-only protection until both sources confirm the reduction.
+    if (!closeOrder || typeof closeOrder !== "object" || !("status" in closeOrder) || closeOrder.status !== "FILLED") {
+      throw new Error("Live exit not confirmed filled; existing protection retained; reconcile before retrying");
+    }
     const [accountState, positionState] = await Promise.all([
       this.client.getBalanceState(),
       this.client.getPositionState(this.config.symbol)
     ]);
+    const previous = context.position_state;
+    const flat = positionState.side === "flat" && positionState.quantity === 0;
+    const reduced = positionState.side === previous.side && positionState.quantity > 0;
+    if (!Number.isFinite(previous.quantity) || previous.quantity <= 0 ||
+        !Number.isFinite(positionState.quantity) || positionState.quantity >= previous.quantity ||
+        (!flat && !reduced)) {
+      throw new Error("Live position does not confirm a reduction; existing protection retained; reconcile before retrying");
+    }
+    // A restarted broker may not own a protection template. Preserve existing
+    // orders on residual exposure rather than cancelling without a replacement.
+    let protectionFailure: ExecutionResult["protectionFailure"];
+    if (flat || this.activeTrade) {
+      try {
+        await this.client.cancelAllOrders(this.config.symbol);
+      } catch {
+        protectionFailure = "cancellation_failed";
+      }
+    }
+    if (!protectionFailure && positionState.quantity > 0 && this.activeTrade) {
+      try {
+        await this.placeProtectionOrders(
+          tradeId,
+          this.activeTrade.side,
+          positionState.quantity,
+          this.activeTrade.stopLoss,
+          this.activeTrade.takeProfit,
+          "remaining"
+        );
+      } catch {
+        protectionFailure = "replacement_failed";
+      }
+    }
+    const message = `Live ${plan.action.toLowerCase()} executed` + (protectionFailure
+      ? `; WARNING: protection ${protectionFailure}; reconcile orders immediately without repeating the exit`
+      : "");
+    if (protectionFailure) this.logger.error({ tradeId, protectionFailure }, "Live exit filled but protection requires reconciliation");
     const now = Date.now();
     const tradeRecord =
       this.activeTrade === null
@@ -631,7 +648,8 @@ export class LiveBroker implements Broker {
             closedAt: positionState.quantity > 0 ? undefined : now,
             holdingMinutes: positionState.quantity > 0 ? undefined : (now - this.activeTrade.openedAt) / 60_000,
             details: {
-              message: `Live ${plan.action.toLowerCase()} executed`,
+              message,
+              protectionFailure,
               raw: closeOrder,
               reasoning: plan.reasoningSummary
             },
@@ -648,12 +666,50 @@ export class LiveBroker implements Broker {
       tradeId,
       accepted: true,
       broker: this.name,
-      message: `Live ${plan.action.toLowerCase()} executed`,
+      message,
+      protectionFailure,
       positionState,
       accountState,
       tradeRecord,
       raw: closeOrder
     };
+  }
+
+  private async placeProtectionOrders(
+    tradeId: string,
+    entrySide: "BUY" | "SELL",
+    quantity: number,
+    stopLoss?: number,
+    takeProfit?: number,
+    clientOrderSuffix?: string
+  ): Promise<void> {
+    const exitSide = entrySide === "BUY" ? "SELL" : "BUY";
+    const suffix = clientOrderSuffix ? `-${clientOrderSuffix}` : "";
+
+    if (stopLoss !== undefined) {
+      await this.client.createOrder({
+        symbol: this.config.symbol,
+        side: exitSide,
+        type: "STOP_MARKET",
+        stopPrice: stopLoss,
+        quantity,
+        reduceOnly: true,
+        workingType: "CONTRACT_PRICE",
+        newClientOrderId: `stop-${tradeId}${suffix}`
+      });
+    }
+    if (takeProfit !== undefined) {
+      await this.client.createOrder({
+        symbol: this.config.symbol,
+        side: exitSide,
+        type: "TAKE_PROFIT_MARKET",
+        stopPrice: takeProfit,
+        quantity,
+        reduceOnly: true,
+        workingType: "CONTRACT_PRICE",
+        newClientOrderId: `tp-${tradeId}${suffix}`
+      });
+    }
   }
 
   public getState(): { accountState: AccountState; positionState: PositionState } {
