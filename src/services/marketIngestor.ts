@@ -61,6 +61,9 @@ export class MarketIngestor {
   private marketReconnectDelayMs = 3_000;
   private userSocket: WebSocket | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private supplementalStopped = false;
+  private supplementalGeneration = 0;
+  private supplementalInFlight: Promise<void> | null = null;
   private listenKey: string | null = null;
   private userStreamStopped = false;
   private userStreamGeneration = 0;
@@ -80,16 +83,28 @@ export class MarketIngestor {
   ) {}
 
   public async start(): Promise<void> {
+    this.supplementalStopped = false;
+    const generation = ++this.supplementalGeneration;
+    // A previous session can still own a request; never overlap its network work.
+    await this.supplementalInFlight;
+    if (!this.isSupplementalCurrent(generation)) return;
     this.marketStopped = false;
     this.userStreamStopped = false;
     const filters = await this.client.getSymbolFilters(this.config.symbol);
-    this.snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
-    this.candleHistory = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    if (!this.isSupplementalCurrent(generation)) return;
+    const snapshot = await this.client.composeInitialMarketSnapshot(this.config.symbol, filters);
+    if (!this.isSupplementalCurrent(generation)) return;
+    const history = await this.client.getRecentKlines(this.config.symbol, "1m", 240);
+    if (!this.isSupplementalCurrent(generation)) return;
+    this.snapshot = snapshot;
+    this.candleHistory = history;
     this.snapshot = this.applyDerivedMetrics(this.snapshot, this.snapshot.markPrice, 0, this.snapshot.markPrice, this.snapshot.markPrice);
     this.lastOpenInterest = this.snapshot.openInterest;
     this.filtersLoaded = true;
     await this.callbacks.onMarket(this.snapshot);
+    if (!this.isSupplementalCurrent(generation)) return;
     await this.refreshSupplemental();
+    if (!this.isSupplementalCurrent(generation)) return;
     this.connectMarketSocket();
     this.refreshTimer = setInterval(() => {
       void this.refreshSupplemental();
@@ -101,6 +116,8 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.supplementalStopped = true;
+    this.supplementalGeneration += 1;
     this.marketStopped = true;
     this.marketGeneration += 1;
     this.clearMarketWatchdog();
@@ -323,13 +340,23 @@ export class MarketIngestor {
     await this.callbacks.onMarket(next);
   }
 
-  private async refreshSupplemental(): Promise<void> {
-    if (!this.snapshot) {
-      return;
-    }
+  private isSupplementalCurrent(generation: number): boolean {
+    return !this.supplementalStopped && generation === this.supplementalGeneration;
+  }
 
+  private refreshSupplemental(): Promise<void> {
+    if (this.supplementalStopped || !this.snapshot) return Promise.resolve();
+    if (this.supplementalInFlight) return this.supplementalInFlight;
+    const pending = this.pollSupplemental(this.supplementalGeneration).finally(() => {
+      if (this.supplementalInFlight === pending) this.supplementalInFlight = null;
+    });
+    this.supplementalInFlight = pending;
+    return pending;
+  }
+
+  private async pollSupplemental(generation: number): Promise<void> {
     try {
-      const [mark, openInterest, ratio, account, position] = await Promise.all([
+      const requests = [
         this.client.getMarkPrice(this.config.symbol),
         this.client.getOpenInterest(this.config.symbol),
         this.client.getTopTraderLongShortRatio(this.config.symbol),
@@ -339,8 +366,13 @@ export class MarketIngestor {
         this.config.tradingMode === "live"
           ? this.client.getPositionState(this.config.symbol)
           : Promise.resolve(null)
-      ]);
+      ] as const;
+      // One failed request must not free the slot while its siblings still run.
+      await Promise.allSettled(requests);
+      if (!this.isSupplementalCurrent(generation)) return;
+      const [mark, openInterest, ratio, account, position] = await Promise.all(requests);
 
+      if (!this.isSupplementalCurrent(generation) || !this.snapshot) return;
       const next: MarketSnapshot = {
         ...this.snapshot,
         markPrice: mark.markPrice,
@@ -362,9 +394,11 @@ export class MarketIngestor {
       );
       this.lastOpenInterest = openInterest;
       await this.callbacks.onMarket(this.snapshot);
+      if (!this.isSupplementalCurrent(generation)) return;
       if (account) {
         await this.callbacks.onAccount(account);
       }
+      if (!this.isSupplementalCurrent(generation)) return;
       if (position) {
         await this.callbacks.onPosition(position);
       }
