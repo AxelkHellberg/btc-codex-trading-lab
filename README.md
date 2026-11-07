@@ -141,3 +141,19 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+
+### Live exit confirmation
+
+CLOSE and REDUCE keep existing exchange-side protection until the market order
+response reports FILLED and a fresh position read confirms smaller same-side
+exposure or a flat position. A rejected, non-final, unreadable, or inconsistent
+result throws without cancelling protection or automatically resending the exit.
+Reconcile the exchange before retrying an uncertain request. If residual exposure
+has no broker-owned protection template after restart, existing protection stays
+in place rather than being cancelled without a replacement.
+
+Confirmed reductions with an owned template retain this branch's existing
+cancel-and-rearm path. Replacement can still fail after a confirmed fill; durable
+fill accounting and post-fill protection-failure recovery remain separate work
+(#44, #144). Offline regressions do not establish live exchange behavior.

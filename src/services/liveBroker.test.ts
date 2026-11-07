@@ -129,7 +129,7 @@ describe("LiveBroker", () => {
       .mockResolvedValueOnce({ orderId: "entry" })
       .mockResolvedValueOnce({ orderId: "stop" })
       .mockResolvedValueOnce({ orderId: "tp" })
-      .mockResolvedValueOnce({ orderId: "reduce" })
+      .mockResolvedValueOnce({ orderId: "reduce", status: "FILLED" })
       .mockResolvedValueOnce({ orderId: "stop-remaining" })
       .mockResolvedValueOnce({ orderId: "tp-remaining" });
     const client = {
@@ -224,4 +224,75 @@ describe("LiveBroker", () => {
     expect(reduceResult.tradeRecord?.status).toBe("partial");
     expect(reduceResult.tradeRecord?.remainingQuantity).toBeCloseTo(0.01, 5);
   });
+});
+
+
+const exitSetup = () => {
+  const ctx = context();
+  ctx.position_state = { ...ctx.position_state, side: "long", quantity: 0.02, entryPrice: 100_000 };
+  const plan: ExecutionPlan = {
+    action: "CLOSE", side: "SELL", entryType: "MARKET", leverage: 2, quantity: 0.02,
+    notionalUsd: 2_000, entryPrice: 100_000, confidence: 1, setupType: "protective_exit",
+    regimeAtEntry: "trend_up", entryReason: "Exit regression", reasoningSummary: "Exit regression"
+  };
+  const client = {
+    createOrder: vi.fn().mockResolvedValue({ orderId: 1, status: "FILLED" }),
+    cancelAllOrders: vi.fn().mockResolvedValue(undefined),
+    getBalanceState: vi.fn().mockResolvedValue(ctx.account_state),
+    getPositionState: vi.fn().mockResolvedValue({ ...ctx.position_state, side: "flat", quantity: 0 })
+  };
+  const broker = new LiveBroker(liveConfig, client as never, { warn: vi.fn() } as never);
+  return { ctx, plan, client, broker };
+};
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+};
+it("retains protection until both the exit response and position read confirm the fill", async () => {
+  const x = exitSetup(); const order = deferred<{ status: string }>();
+  const position = deferred<DecisionContext["position_state"]>();
+  x.client.createOrder.mockReturnValueOnce(order.promise);
+  x.client.getPositionState.mockReturnValueOnce(position.promise);
+  const execution = x.broker.execute(x.plan, x.ctx);
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+  order.resolve({ status: "FILLED" }); await Promise.resolve(); await Promise.resolve();
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+  position.resolve({ ...x.ctx.position_state, side: "flat", quantity: 0 });
+  expect((await execution).accepted).toBe(true);
+  expect(x.client.cancelAllOrders).toHaveBeenCalledOnce();
+});
+it("does not remove protection after a rejected or ambiguous exit request", async () => {
+  const x = exitSetup(); x.client.createOrder.mockRejectedValueOnce(new Error("request uncertain"));
+  await expect(x.broker.execute(x.plan, x.ctx)).rejects.toThrow("request uncertain");
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+  expect(x.client.createOrder).toHaveBeenCalledOnce();
+});
+it.each(["NEW", "PARTIALLY_FILLED", "REJECTED", undefined])("retains protection for non-final response %s", async (status) => {
+  const x = exitSetup(); x.client.createOrder.mockResolvedValueOnce({ status } as never);
+  await expect(x.broker.execute(x.plan, x.ctx)).rejects.toThrow("not confirmed filled");
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+});
+it.each(["getPositionState", "getBalanceState"] as const)("retains protection if %s fails", async (method) => {
+  const x = exitSetup(); x.client[method].mockRejectedValueOnce(new Error("read failed"));
+  await expect(x.broker.execute(x.plan, x.ctx)).rejects.toThrow("read failed");
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+});
+it.each([
+  { side: "long", quantity: 0.02 },
+  { side: "short", quantity: 0.01 },
+  { side: "long", quantity: Number.NaN }
+])("retains protection for an inconsistent reconciled position %j", async (position) => {
+  const x = exitSetup(); x.client.getPositionState.mockResolvedValueOnce({ ...x.ctx.position_state, ...position } as never);
+  await expect(x.broker.execute(x.plan, x.ctx)).rejects.toThrow("does not confirm a reduction");
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
+});
+
+it("keeps existing residual protection when the broker has no owned replacement template", async () => {
+  const x = exitSetup();
+  x.client.getPositionState.mockResolvedValueOnce({ ...x.ctx.position_state, quantity: 0.01 } as never);
+  const result = await x.broker.execute({ ...x.plan, action: "REDUCE", quantity: 0.01 }, x.ctx);
+  expect(result.accepted).toBe(true);
+  expect(result.positionState.quantity).toBe(0.01);
+  expect(x.client.cancelAllOrders).not.toHaveBeenCalled();
 });

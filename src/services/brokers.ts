@@ -582,7 +582,6 @@ export class LiveBroker implements Broker {
       };
     }
 
-    await this.client.cancelAllOrders(this.config.symbol);
     const closeOrder = await this.client.createOrder({
       symbol: this.config.symbol,
       side: plan.side,
@@ -592,10 +591,26 @@ export class LiveBroker implements Broker {
       newOrderRespType: "RESULT",
       newClientOrderId: `close-${tradeId}`
     });
+    // RESULT can still describe an unfilled or partially filled order. Keep the
+    // existing reduce-only protection until both sources confirm the reduction.
+    if (!closeOrder || typeof closeOrder !== "object" || !("status" in closeOrder) || closeOrder.status !== "FILLED") {
+      throw new Error("Live exit not confirmed filled; existing protection retained; reconcile before retrying");
+    }
     const [accountState, positionState] = await Promise.all([
       this.client.getBalanceState(),
       this.client.getPositionState(this.config.symbol)
     ]);
+    const previous = context.position_state;
+    const flat = positionState.side === "flat" && positionState.quantity === 0;
+    const reduced = positionState.side === previous.side && positionState.quantity > 0;
+    if (!Number.isFinite(previous.quantity) || previous.quantity <= 0 ||
+        !Number.isFinite(positionState.quantity) || positionState.quantity >= previous.quantity ||
+        (!flat && !reduced)) {
+      throw new Error("Live position does not confirm a reduction; existing protection retained; reconcile before retrying");
+    }
+    // A restarted broker may not own a protection template. Preserve existing
+    // orders on residual exposure rather than cancelling without a replacement.
+    if (flat || this.activeTrade) await this.client.cancelAllOrders(this.config.symbol);
     if (positionState.quantity > 0 && this.activeTrade) {
       await this.placeProtectionOrders(
         tradeId,
