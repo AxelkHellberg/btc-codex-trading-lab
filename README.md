@@ -218,3 +218,14 @@ This is an in-memory repair queue, not a durable outbox: crashes or forced exit
 can lose pending writes. Prolonged outages retain one record per affected trade
 without a discard limit, so memory may grow; operators must monitor pending
 counts and restore storage. Notification delivery remains best effort.
+
+### Execution state snapshot writes
+
+Every returned broker result immediately schedules account/position snapshots
+in Postgres and the corresponding Redis latest-state keys. These independent
+writes are attempted even if a trade audit fails; incomplete state persistence
+reaches the caller and adds a warning to accepted-execution notifications.
+The four writes are not atomic and are not automatically retried. Audit retry
+policy remains separate. No exchange order is replayed to repair a snapshot.
+Execution-result market callbacks reuse the same path without another snapshot
+pair; non-execution paper tick persistence is addressed separately by #374.
