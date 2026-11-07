@@ -1,3 +1,4 @@
+import { loadRecordedDecisions } from "./recordedDecisions.js";
 import { config } from "../config.js";
 import type { AccountState, DecisionContext, StrategySignal } from "../domain/types.js";
 import { BinanceFuturesClient } from "../infra/binance/binanceFuturesClient.js";
@@ -138,6 +139,8 @@ const decideFromHistory = (candles: Candle[]): StrategySignal => {
 };
 
 const main = async (): Promise<void> => {
+  const recorded = process.env.BACKTEST_DECISIONS_FILE === undefined ? null
+    : await loadRecordedDecisions(process.env.BACKTEST_DECISIONS_FILE);
   const client = new BinanceFuturesClient(
     config.binance.restBaseUrl,
     config.binance.wsBaseUrl,
@@ -161,6 +164,10 @@ const main = async (): Promise<void> => {
   let losses = 0;
   let entries = 0;
   let exits = 0;
+  let lifecycleExits = 0;
+  let decisionExits = 0;
+  let decisionReductions = 0;
+  let recordedSignalsApplied = 0;
   let peakEquity = initialBalance;
   let maxDrawdown = 0;
 
@@ -206,6 +213,7 @@ const main = async (): Promise<void> => {
     const paperState = await broker.onMarketSnapshot?.(marketSnapshot);
     if (paperState?.accepted && paperState.tradeRecord?.status === "closed") {
       exits += 1;
+      lifecycleExits += 1;
       const netPnl = paperState.tradeRecord.netPnl;
       if (netPnl >= 0) {
         wins += 1;
@@ -293,15 +301,29 @@ const main = async (): Promise<void> => {
       }
     };
 
-    if (context.position_state.side === "flat") {
-      const signal = decideFromHistory(window);
-      const planning = planner.plan(context, signal);
-      const evaluation = riskEngine.evaluate(context, planning);
-      if (evaluation.approved && evaluation.executionPlan) {
-        const open = await broker.execute(evaluation.executionPlan, context);
-        if (open.accepted) {
-          entries += 1;
-        }
+    const recordedSignal = recorded?.get(current.closeTime);
+    if (recordedSignal) recordedSignalsApplied += 1;
+    const hold: StrategySignal = {
+      bias: "FLAT", confidence: 0, setup_type: "continuation", holding_horizon_minutes: 1,
+      reasoning_summary: "No recorded position-management decision at this candle close."
+    };
+    // Exact timestamp matching never consumes a decision from a later candle.
+    // Recording mode does not silently substitute the built-in entry heuristic.
+    const signal = recorded !== null ? recordedSignal ?? hold
+      : context.position_state.side === "flat" ? decideFromHistory(window) : hold;
+    const planning = planner.plan(context, signal);
+    const evaluation = riskEngine.evaluate(context, planning);
+    if (evaluation.approved && evaluation.executionPlan) {
+      const execution = await broker.execute(evaluation.executionPlan, context);
+      if (execution.accepted) {
+        const action = evaluation.executionPlan.action;
+        if (action === "LONG" || action === "SHORT") entries += 1;
+        else if (execution.tradeRecord?.status === "closed") {
+          exits += 1;
+          decisionExits += 1;
+          if (execution.tradeRecord.netPnl >= 0) wins += 1;
+          else losses += 1;
+        } else if (action === "REDUCE") decisionReductions += 1;
       }
     }
 
@@ -316,6 +338,12 @@ const main = async (): Promise<void> => {
       days,
       entries,
       exits,
+      lifecycleExits,
+      decisionExits,
+      decisionReductions,
+      decisionSource: recorded === null ? "historical_heuristic" : "recorded",
+      recordedSignalsApplied,
+      unusedRecordedSignals: recorded === null ? 0 : recorded.size - recordedSignalsApplied,
       wins,
       losses,
       winRate: exits > 0 ? wins / exits : 0,

@@ -159,3 +159,42 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+
+### Replaying recorded decisions
+
+Set `BACKTEST_DECISIONS_FILE=/absolute/path/decisions.json` to replay previously
+recorded strategy decisions instead of the built-in entry heuristic. This runs no
+model and calls no paid API. Each row has an exact historical candle close time
+in Unix milliseconds and the normal strategy-signal payload:
+
+```json
+[
+  {
+    "timestamp": 1577840459999,
+    "signal": {
+      "bias": "CLOSE",
+      "confidence": 0.8,
+      "setup_type": "protective_exit",
+      "invalidation_price": null,
+      "holding_horizon_minutes": 60,
+      "reasoning_summary": "Recorded thesis invalidation after a context change."
+    }
+  }
+]
+```
+
+Records must have strictly increasing, unique timestamps and valid signal fields.
+Only a record matching the current candle close is considered; missing records
+hold, and future records are never applied early. Planner and risk checks still
+approve or reject each action, including CLOSE and REDUCE while a position is
+open. Passive broker lifecycle processing runs first. The report separates
+`lifecycleExits`, `decisionExits`, and `decisionReductions`, and reports applied
+and unused records. A reduction that closes the last quantity counts as an exit.
+
+Without a file, the existing historical entry heuristic and passive exits remain
+the default. This is a deterministic replay facility, not an automatic model
+backtest: recordings must be produced from information available at the stated
+time. The parser cannot prove their provenance or absence of hindsight. No
+performance or live-trading equivalence is implied. Stacked on #325; reconcile
+other unmerged replay changes before integrating.
