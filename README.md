@@ -155,3 +155,13 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Runtime equity marking
+
+Market ticks apply the tracked position's unrealized-PnL delta to runtime account
+equity, keeping the in-memory account and position view aligned between exchange
+refreshes. Wallet balance, available margin, and realized risk counters remain
+authoritative from their existing sources; available margin is not inferred from
+a single position. Exchange refreshes replace the account/position baseline.
+This does not reconstruct live trade history or atomically synchronize the two
+exchange refresh callbacks. Persisted snapshots retain their existing cadence.

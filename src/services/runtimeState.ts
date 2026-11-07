@@ -48,11 +48,19 @@ export class RuntimeState {
     this.latestMarket = snapshot;
     if (this.position.side !== "flat" && this.position.quantity > 0) {
       const direction = this.position.side === "long" ? 1 : -1;
+      const unrealizedPnl =
+        (snapshot.markPrice - this.position.entryPrice) * this.position.quantity * direction;
+      // Preserve the exchange account's other equity components. Only this
+      // position's change since its previous mark belongs to this market tick.
+      this.account = {
+        ...this.account,
+        equity: this.account.equity + unrealizedPnl - this.position.unrealizedPnl,
+        updatedAt: snapshot.timestamp
+      };
       this.position = {
         ...this.position,
         markPrice: snapshot.markPrice,
-        unrealizedPnl:
-          (snapshot.markPrice - this.position.entryPrice) * this.position.quantity * direction
+        unrealizedPnl
       };
     }
   }
