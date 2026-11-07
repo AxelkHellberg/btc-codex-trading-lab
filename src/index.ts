@@ -8,6 +8,7 @@ import { logger } from "./logger.js";
 import { LiveBroker, PaperBroker, type Broker } from "./services/brokers.js";
 import { CodexDecisionWorker } from "./services/codexDecisionWorker.js";
 import { EventDetector } from "./services/eventDetector.js";
+import { persistExecutionSnapshots } from "./services/executionSnapshots.js";
 import { ExecutionEngine } from "./services/executionEngine.js";
 import { MarketIngestor } from "./services/marketIngestor.js";
 import { NewsIngestor } from "./services/newsIngestor.js";
@@ -66,7 +67,8 @@ const main = async (): Promise<void> => {
     const tradePersistence = new TradePersistenceQueue(record => store.saveTrade(record), logger);
     lifecycle.own("Trade persistence", () => tradePersistence.stop());
     lifecycle.own("In-flight runtime work", () => work.drain());
-    const executionEngine = new ExecutionEngine(config, runtime, store, notifier, broker, logger, tradePersistence);
+    const executionEngine = new ExecutionEngine(config, runtime, store, notifier, broker, logger, tradePersistence,
+      result => persistExecutionSnapshots(store, hotStore, result));
     const decisionWorker = new CodexDecisionWorker(config, logger);
     const planner = new StrategyPlanner(config);
     const riskEngine = new RiskEngine(config);
@@ -130,10 +132,6 @@ const main = async (): Promise<void> => {
           }
           if (result) {
             await executionEngine.handleExecutionResult(result);
-            await store.saveSnapshot("account", result.accountState);
-            await store.saveSnapshot("position", result.positionState);
-            await hotStore.setJson("latest:account", result.accountState, 300);
-            await hotStore.setJson("latest:position", result.positionState, 300);
           }
         }
       }),

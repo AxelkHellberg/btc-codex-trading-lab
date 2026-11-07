@@ -23,7 +23,8 @@ export class ExecutionEngine {
     private readonly notifier: TelegramNotifier,
     private readonly broker: Broker,
     private readonly logger: Logger,
-    private readonly tradePersistence?: Pick<TradePersistenceQueue, "save">
+    private readonly tradePersistence?: Pick<TradePersistenceQueue, "save">,
+    private readonly persistState?: (result: Awaited<ReturnType<Broker["execute"]>>) => Promise<void>
   ) {}
 
   public async persistDecision(
@@ -66,6 +67,13 @@ export class ExecutionEngine {
     this.runtime.setPosition(result.positionState);
 
     const failures: unknown[] = [];
+    // Start the independent state write even if the trade audit later fails.
+    const stateWrite = this.persistState
+      ? Promise.resolve().then(() => this.persistState!(result)).then(
+          () => ({ ok: true as const }),
+          (error: unknown) => ({ ok: false as const, error })
+        )
+      : Promise.resolve({ ok: true as const });
     if (result.tradeRecord) {
       this.runtime.upsertTrade(result.tradeRecord);
       try {
@@ -79,6 +87,13 @@ export class ExecutionEngine {
       }
     }
 
+    const tradeAuditFailed = failures.length > 0;
+    const stateOutcome = await stateWrite;
+    if (!stateOutcome.ok) {
+      failures.push(stateOutcome.error);
+      this.logger.error({ tradeId: result.tradeId }, "Execution state snapshot persistence failed");
+    }
+
     if (result.accepted) {
       const reasoning =
         (typeof result.tradeRecord?.details === "object" &&
@@ -86,7 +101,9 @@ export class ExecutionEngine {
         "reasoning" in result.tradeRecord.details
           ? String((result.tradeRecord.details as { reasoning?: string }).reasoning ?? "")
           : fallbackReasoning) ?? "";
-      const persistenceWarning = failures.length > 0 ? "\nWarning: trade audit persistence failed." : "";
+      const persistenceWarning =
+        (tradeAuditFailed ? "\nWarning: trade audit persistence failed." : "") +
+        (!stateOutcome.ok ? "\nWarning: account/position snapshot persistence failed." : "");
       try {
         await this.notifier.notify(
           `[${this.config.tradingMode}] ${result.message}${reasoning ? `\n${reasoning}` : ""}${persistenceWarning}`
