@@ -351,6 +351,11 @@ export async function createHttpServer(
         </div>
 
         <div class="card full">
+          <div class="section-title"><span>Recent Execution Attempts</span></div>
+          <pre id="executionAttempts"></pre>
+        </div>
+
+        <div class="card full">
           <div class="section-title">
             <span>Recent Trades</span>
             <span class="small">Paper or live executions</span>
@@ -454,6 +459,7 @@ export async function createHttpServer(
         document.getElementById("volumeAccel").className = "mono " + trendClass((data.market?.volumeAcceleration || 1) - 1);
         document.getElementById("marketUpdated").textContent = "Updated " + formatTs(data.market?.timestamp);
 
+        document.getElementById("executionAttempts").textContent = JSON.stringify(data.recentExecutionAttempts || [], null, 2);
         const decisions = data.recentDecisions || [];
         const flatCount = decisions.filter((item) => item.signal?.bias === "FLAT").length;
         const confidenceRejects = decisions.filter((item) => (item.reasons || []).some((reason) => reason.includes("confidence below"))).length;
@@ -542,6 +548,7 @@ export async function createHttpServer(
     account: runtime.getAccount(),
     position: runtime.getPosition(),
     tradeStats: runtime.getTradeStats(),
+    recentExecutionAttempts: runtime.getRecentExecutionAttempts(),
     recentDecisions: runtime.getRecentDecisions().slice(0, 25),
     recentTrades: runtime.getRecentTrades().slice(0, 25)
   }));

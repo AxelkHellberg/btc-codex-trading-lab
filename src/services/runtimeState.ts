@@ -2,6 +2,7 @@ import type {
   AccountState,
   DecisionContext,
   EvaluationTrigger,
+  ExecutionAttemptRecord,
   MarketRegime,
   MarketSnapshot,
   NewsEvent,
@@ -20,6 +21,7 @@ export class RuntimeState {
   private position: PositionState;
   private decisions: PersistedDecisionRecord[] = [];
   private trades: PersistedTradeRecord[] = [];
+  private executionAttempts: ExecutionAttemptRecord[] = [];
 
   public constructor(initialEquity: number) {
     const now = Date.now();
@@ -208,6 +210,16 @@ export class RuntimeState {
 
   public upsertTrade(record: PersistedTradeRecord): void {
     this.trades = [record, ...this.trades.filter((trade) => trade.tradeId !== record.tradeId)].slice(0, 25);
+  }
+
+  public upsertExecutionAttempt(record: ExecutionAttemptRecord): void {
+    this.executionAttempts = [record, ...this.executionAttempts.filter(
+      (attempt) => attempt.attemptId !== record.attemptId
+    )].slice(0, 25);
+  }
+
+  public getRecentExecutionAttempts(): ExecutionAttemptRecord[] {
+    return this.executionAttempts.map((attempt) => ({ ...attempt }));
   }
 
   public getRecentDecisions(): PersistedDecisionRecord[] {

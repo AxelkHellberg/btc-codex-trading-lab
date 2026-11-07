@@ -155,3 +155,9 @@ This repo is strongest as a secondary public project for roles that value:
 - orchestration around LLMs
 
 It is weaker as a primary repo for pure React Native, iOS, or Android roles because the delivered artifact is backend-heavy rather than client-heavy.
+
+### Broker execution attempt audit
+
+Approved decisions persist an `execution_attempt` snapshot before invoking the broker. The snapshot links an attempt ID and decision ID to the broker, action, quantity and `broker.execute` phase. The result is `accepted`, `rejected`, or `unknown`; an exception is always unknown because an exchange order may already have executed. No broker call is retried by this audit path. Raw exception messages are excluded from the new snapshots and notifications.
+
+`/status` and the dashboard expose the latest 25 in-memory attempts. PostgreSQL retains intent and outcome snapshots. If the initial intent write fails, the broker is not invoked. If the outcome write fails, the runtime retains the outcome and result handling continues; persistent history may show only `started`. A process crash can likewise leave `started`, and restart does not yet reload this list. Reconcile exchange state before retrying any unknown/unfinished attempt. The audit records the broker boundary, not an unobservable internal exchange step; it does not provide automatic recovery or exactly-once order execution.
