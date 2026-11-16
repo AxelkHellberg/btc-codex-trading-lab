@@ -185,5 +185,15 @@ HTTP deadlines still determine how long outstanding requests take to settle.
 
 This change is stacked on #368. Integrating it with the independent supplemental
 result delivery (#334), source ordering (#377), or user-stream cleanup (#389)
-requires retaining the generation checks around every awaited sink. It does not
-resolve concurrent duplicate `start()` calls (#151).
+requires retaining the generation checks around every awaited sink.
+
+### Market ingestor startup
+
+Repeated `start()` calls share the current session: concurrent callers wait for
+one bootstrap to finish, and starting an already running ingestor does not add
+another stream or minute timer. Failed startup retires installed resources before
+allowing a retry. Stop invalidates pending startup; a later restart waits for that
+retired bootstrap and any supplemental requests before opening a new session.
+Late completion or failure from the retired session cannot mark the replacement
+ready or stop it. These lifecycle checks use mocked network and stream methods;
+they do not establish readiness of a live exchange connection.
