@@ -53,6 +53,8 @@ type CombinedStreamMessage = {
 };
 
 export class MarketIngestor {
+  private starting: Promise<void> | null = null;
+  private started = false;
   private marketSocket: WebSocket | null = null;
   private marketStopped = false;
   private marketGeneration = 0;
@@ -82,10 +84,29 @@ export class MarketIngestor {
     private readonly callbacks: MarketCallbacks
   ) {}
 
-  public async start(): Promise<void> {
+  public start(): Promise<void> {
+    if (this.starting && !this.supplementalStopped) return this.starting;
+    if (this.started) return Promise.resolve();
+    const previous = this.starting;
+    const starting = this.startSession(previous).then(() => {
+      if (this.starting === starting && !this.supplementalStopped) this.started = true;
+    }).catch(async (error: unknown) => {
+      // A stopped session can finish after a replacement has taken ownership.
+      if (this.starting === starting) await this.stop();
+      throw error;
+    }).finally(() => {
+      if (this.starting === starting) this.starting = null;
+    });
+    this.starting = starting;
+    return starting;
+  }
+
+  private async startSession(previous: Promise<void> | null): Promise<void> {
     this.supplementalStopped = false;
     const generation = ++this.supplementalGeneration;
-    // A previous session can still own a request; never overlap its network work.
+    // Drain retired bootstrap work as well as supplemental requests before restart.
+    await previous?.catch(() => {});
+    if (!this.isSupplementalCurrent(generation)) return;
     await this.supplementalInFlight;
     if (!this.isSupplementalCurrent(generation)) return;
     this.marketStopped = false;
@@ -116,6 +137,7 @@ export class MarketIngestor {
   }
 
   public async stop(): Promise<void> {
+    this.started = false;
     this.supplementalStopped = true;
     this.supplementalGeneration += 1;
     this.marketStopped = true;
