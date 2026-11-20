@@ -46,7 +46,7 @@ describe("OnchainIngestor", () => {
         return new Response("100", { status: 200 });
       }
       if (tipHeightResponse === 2) {
-        return new Response("bad gateway", { status: 502 });
+        return new Response("upstream failed\n".repeat(100_000), { status: 502 });
       }
 
       return new Response("101", { status: 200 });
@@ -70,6 +70,8 @@ describe("OnchainIngestor", () => {
       expect(onSnapshot.mock.calls[1]?.[0].tipHeight).toBe(101);
       expect(onSnapshot.mock.calls[1]?.[0].blockCadenceSeconds).toBe(120);
       expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn.mock.calls[0]?.[0].error.message.length).toBe("Failed to fetch tip height: HTTP 502".length);
+      expect(logger.warn.mock.calls[0]?.[0].error.message).toBe("Failed to fetch tip height: HTTP 502");
       expect((ingestor as never as { lastHeight: number | null }).lastHeight).toBe(101);
     } finally {
       vi.useRealTimers();
@@ -152,5 +154,62 @@ describe("OnchainIngestor", () => {
     await expect(
       (ingestor as never as { fetchTipHeight: () => Promise<number> }).fetchTipHeight()
     ).rejects.toThrow("Failed to fetch tip height: invalid response");
+  });
+
+  it("discards oversized error bodies without reading them", async () => {
+    const ingestor = new OnchainIngestor(config, { warn: vi.fn() } as never, vi.fn());
+    const response = new Response("upstream failed\n".repeat(100_000), { status: 502 });
+    const readBody = vi.spyOn(response, "text");
+    const cancelBody = vi.spyOn(response.body!, "cancel");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    const failure = await (ingestor as never as { fetchTipHeight: () => Promise<number> }).fetchTipHeight()
+      .catch((error: Error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message.length).toBe("Failed to fetch tip height: HTTP 502".length);
+    expect((failure as Error).message).toBe("Failed to fetch tip height: HTTP 502");
+
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cancelBody).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects promptly when an error body and its cancellation never settle", async () => {
+    const ingestor = new OnchainIngestor(config, { warn: vi.fn() } as never, vi.fn());
+    const readBody = vi.fn(() => new Promise<string>(() => undefined));
+    const cancelBody = vi.fn(() => new Promise<void>(() => undefined));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 503, text: readBody, body: { cancel: cancelBody }
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const result = await Promise.race([
+        (ingestor as never as { fetchTipHeight: () => Promise<number> }).fetchTipHeight()
+          .then(() => "unexpected success", (error: Error) => error.message),
+        new Promise<string>((resolve) => { timer = setTimeout(() => resolve("still waiting for body"), 100); })
+      ]);
+      expect(result).toBe("Failed to fetch tip height: HTTP 503");
+      expect(readBody).not.toHaveBeenCalled();
+      expect(cancelBody).toHaveBeenCalledTimes(1);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("preserves the HTTP failure when unused-body cancellation rejects", async () => {
+    const ingestor = new OnchainIngestor(config, { warn: vi.fn() } as never, vi.fn());
+    const readBody = vi.fn().mockRejectedValue(new Error("failed to read body"));
+    const cancelBody = vi.fn().mockRejectedValue(new Error("failed to cancel body"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 429, text: readBody, body: { cancel: cancelBody }
+    }));
+
+    await expect(
+      (ingestor as never as { fetchTipHeight: () => Promise<number> }).fetchTipHeight()
+    ).rejects.toThrow("Failed to fetch tip height: HTTP 429");
+
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cancelBody).toHaveBeenCalledTimes(1);
   });
 });

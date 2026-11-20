@@ -83,7 +83,8 @@ export class OnchainIngestor {
   private async fetchTipHeight(): Promise<number> {
     const response = await fetch(`${this.config.onchainBaseUrl}/blocks/tip/height`);
     if (!response.ok) {
-      throw new Error(`Failed to fetch tip height: ${response.status} ${await response.text()}`);
+      void response.body?.cancel().catch(() => undefined);
+      throw new Error(`Failed to fetch tip height: HTTP ${response.status}`);
     }
 
     const rawTipHeight = (await response.text()).trim();
