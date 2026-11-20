@@ -9,12 +9,14 @@ export class HttpError extends Error {
 }
 
 export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("accept")) {
+    headers.set("accept", "application/json");
+  }
+
   const response = await fetch(input, {
     ...init,
-    headers: {
-      accept: "application/json",
-      ...(init?.headers ?? {})
-    }
+    headers
   });
 
   if (!response.ok) {
