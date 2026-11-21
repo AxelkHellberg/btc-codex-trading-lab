@@ -11,7 +11,7 @@ export const StrategySignalSchema = z.object({
     "momentum_exit",
     "protective_exit"
   ]),
-  invalidation_price: z.number().positive().nullable(),
+  invalidation_price: z.number().finite().positive().nullable(),
   holding_horizon_minutes: z.number().int().min(1).max(1_440),
   reasoning_summary: z.string().min(12).max(500)
 });
