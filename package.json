@@ -34,6 +34,7 @@
     "backtest": "tsx src/scripts/backtest.ts",
     "doctor": "tsx src/scripts/doctor.ts",
     "test": "vitest run",
+    "test:types": "tsc -p tsconfig.test.json",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -101,6 +101,7 @@ The doctor output reports connectivity for PostgreSQL, Redis, the local HTTP ser
 Useful commands:
 
 - `npm test`
+- `npm run test:types`
 - `npm run build`
 - `npm run doctor`
 - `npm run backtest`
@@ -136,6 +137,7 @@ GitHub Actions runs:
 
 - `npm ci`
 - `npm run build`
+- `npm run test:types` (checks application and test sources without emitting files)
 - `npm test`
 
 ## Important caveats
