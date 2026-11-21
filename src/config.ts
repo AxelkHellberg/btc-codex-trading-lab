@@ -12,7 +12,7 @@ const csvToList = (raw: string): string[] =>
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  APP_PORT: z.coerce.number().finite().int().positive().default(3000),
+  APP_PORT: z.coerce.number().finite().int().positive().max(65_535).default(3000),
   LOG_LEVEL: z.string().default("info"),
   TRADING_MODE: z.enum(["paper", "live"]).default("paper"),
   SYMBOL: z.string().default("BTCUSDT"),
@@ -37,7 +37,7 @@ const envSchema = z.object({
   SLIPPAGE_BPS: z.coerce.number().finite().nonnegative().default(3),
   TAKER_FEE_BPS: z.coerce.number().finite().nonnegative().default(4),
   PAPER_STARTING_BALANCE: z.coerce.number().finite().positive().default(10000),
-  CODEX_DECISION_TIMEOUT_MS: z.coerce.number().finite().int().positive().default(45_000),
+  CODEX_DECISION_TIMEOUT_MS: z.coerce.number().finite().int().positive().max(2_147_483_647).default(45_000),
   CODEX_DECISION_MODEL: z.string().default("gpt-5.1-codex"),
   CODEX_USE_CLI_FALLBACK: z
     .string()
