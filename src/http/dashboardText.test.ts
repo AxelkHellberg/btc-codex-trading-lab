@@ -73,4 +73,20 @@ describe("dashboard text rendering", () => {
     expect(nodes.get("posSide")!.children[0]!.className).toBe("badge badge-long");
     expect(nodes.get("posSide")!.children[0]!.textContent).toBe("long");
   });
+  it.each([
+    { label: "closed", status: "closed", remainingQuantity: 0, expected: "0 / 0.02" },
+    { label: "partially reduced", status: "partial", remainingQuantity: 0.01, expected: "0.01 / 0.02" },
+    { label: "legacy missing quantity", status: "open", remainingQuantity: undefined, expected: "0.02 / 0.02" },
+    { label: "legacy null quantity", status: "open", remainingQuantity: null, expected: "0.02 / 0.02" }
+  ])("shows remaining exposure for a $label trade", async ({ status, remainingQuantity, expected }) => {
+    const nodes = await render({
+      ...base,
+      recentTrades: [{
+        action: "LONG", side: "BUY", status, quantity: 0.02,
+        ...(remainingQuantity === undefined ? {} : { remainingQuantity })
+      }]
+    });
+    const quantityCell = nodes.get("tradesBody")!.children[0]!.children[3]!;
+    expect(quantityCell.textContent).toBe(expected);
+  });
 });

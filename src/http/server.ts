@@ -514,7 +514,7 @@ export async function createHttpServer(
           const row = document.createElement("tr");
           row.append(
             cell(formatTs(item.createdAt), "small"), cell(badge(item.action)), cell(item.side),
-            cell(num.format(item.remainingQuantity || item.quantity) + " / " + num.format(item.quantity), "mono"),
+            cell(num.format(item.remainingQuantity ?? item.quantity) + " / " + num.format(item.quantity), "mono"),
             cell(money.format(item.entryPrice || 0), "mono"), cell(item.status), cell(item.exitReason || "-"),
             cell(money.format(item.netPnl || 0), "mono " + trendClass(item.netPnl || 0)),
             cell(money.format(item.mfe || 0) + " / " + money.format(item.mae || 0), "small"),
