@@ -11,14 +11,9 @@ STDERR_PATH="$ROOT/logs/launchd.err.log"
 
 mkdir -p "$ROOT/logs" "$HOME/Library/LaunchAgents"
 npm run build >/dev/null
-sed \
-  -e "s|__LABEL__|$LABEL|g" \
-  -e "s|__NODE_BIN__|$NODE_BIN|g" \
-  -e "s|__WORKDIR__|$ROOT|g" \
-  -e "s|__HOME__|$HOME|g" \
-  -e "s|__STDOUT__|$STDOUT_PATH|g" \
-  -e "s|__STDERR__|$STDERR_PATH|g" \
-  "$PLIST_TEMPLATE" > "$PLIST_DST"
+"$NODE_BIN" "$ROOT/scripts/render-launch-agent.mjs" \
+  "$PLIST_TEMPLATE" "$PLIST_DST" "$LABEL" "$NODE_BIN" \
+  "$ROOT" "$HOME" "$STDOUT_PATH" "$STDERR_PATH"
 launchctl bootout "gui/$(id -u)" "$PLIST_DST" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_DST"
 launchctl enable "gui/$(id -u)/$LABEL"
