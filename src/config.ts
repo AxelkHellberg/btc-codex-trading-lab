@@ -34,7 +34,9 @@ const envSchema = z.object({
   MAX_OPEN_POSITIONS: z.coerce.number().finite().int().positive().default(1),
   COOLDOWN_MINUTES: z.coerce.number().finite().int().positive().default(60),
   MIN_RISK_REWARD: z.coerce.number().finite().positive().default(1.5),
-  SLIPPAGE_BPS: z.coerce.number().finite().nonnegative().default(3),
+  SLIPPAGE_BPS: z.coerce.number().finite().nonnegative()
+    .lt(10_000, "SLIPPAGE_BPS must be less than 10000 basis points to keep SELL fill prices positive")
+    .default(3),
   TAKER_FEE_BPS: z.coerce.number().finite().nonnegative().default(4),
   PAPER_STARTING_BALANCE: z.coerce.number().finite().positive().default(10000),
   CODEX_DECISION_TIMEOUT_MS: z.coerce.number().finite().int().positive().max(2_147_483_647).default(45_000),

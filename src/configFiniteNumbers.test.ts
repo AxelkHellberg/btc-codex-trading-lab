@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import type { AppConfig } from "./config.js";
+import { estimateSlippagePrice } from "./lib/math.js";
 
 const require = createRequire(import.meta.url);
 const script = ts.transpileModule(readFileSync(new URL("./config.ts", import.meta.url), "utf8"), {
@@ -60,5 +61,23 @@ describe("runtime platform configuration ranges", () => {
   );
   it.each(["1", "45000", "2147483647"])("accepts the timer duration %s", (CODEX_DECISION_TIMEOUT_MS) => {
     expect(loadConfig({ CODEX_DECISION_TIMEOUT_MS }).codex.timeoutMs).toBe(Number(CODEX_DECISION_TIMEOUT_MS));
+  });
+});
+
+describe("paper slippage configuration range", () => {
+  it.each(["10000", "10001", String(Number.MAX_VALUE)])(
+    "rejects SLIPPAGE_BPS=%s before SELL fills become nonpositive", (SLIPPAGE_BPS) => {
+      expect(() => loadConfig({ SLIPPAGE_BPS })).toThrow("SLIPPAGE_BPS");
+      expect(() => loadConfig({ SLIPPAGE_BPS })).toThrow("must be less than 10000 basis points");
+    }
+  );
+  it("preserves rejection of negative slippage", () => {
+    expect(() => loadConfig({ SLIPPAGE_BPS: "-1" })).toThrow("SLIPPAGE_BPS");
+  });
+  it.each(["0", "3", "9999.999999"])("preserves valid SLIPPAGE_BPS=%s", (SLIPPAGE_BPS) => {
+    const { slippageBps } = loadConfig({ SLIPPAGE_BPS });
+    expect(slippageBps).toBe(Number(SLIPPAGE_BPS));
+    expect(estimateSlippagePrice(100, slippageBps, "SELL")).toBeGreaterThan(0);
+    expect(estimateSlippagePrice(100, slippageBps, "BUY")).toBeGreaterThan(0);
   });
 });
