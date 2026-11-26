@@ -58,6 +58,13 @@ describe("response-body deadline", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("keeps default text decoding independent of declared charset", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("café", {
+      headers: { "content-type": "text/plain; charset=iso-8859-1" }
+    })));
+    await expect(fetchText("http://127.0.0.1:1/text")).resolves.toBe("café");
+  });
+
   it("preserves parse and HTTP errors before the deadline", async () => {
     const parseError = new SyntaxError("invalid JSON");
     bodyResponse(true, "json", async () => { throw parseError; });

@@ -145,3 +145,5 @@ It is weaker as a primary repo for pure React Native, iOS, or Android roles beca
 ### Shared HTTP request deadline
 
 `fetchJson` and `fetchText` apply one timeout budget (10 seconds by default) to header arrival and the entire body read, including HTTP error bodies. Expiry aborts the transport and rejects with `RequestTimeoutError`; an explicit caller abort keeps its original reason. Successful completion removes the deadline and abort listener. This bounds elapsed waiting, not the size of successful bodies; the separate bounded-error-diagnostic change still needs to be reconciled when combining drafts.
+
+RSS feeds use the same deadline before XML parsing. Timed-out requests are aborted and logged as `RequestTimeoutError`, while other feeds in that poll can still deliver their events. Feed requests retain the RSS parser's User-Agent, Accept headers and supported HTTP charset decoding. They follow Fetch's redirect policy (at most 20 redirects, previously five), within the same deadline. Other `fetchText` callers retain Fetch's default UTF-8 decoding.

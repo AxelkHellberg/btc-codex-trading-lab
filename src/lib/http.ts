@@ -63,8 +63,12 @@ async function consumeWithTimeout<T>(
   }
 }
 
-export async function fetchText(input: string, init?: TimedRequestInit): Promise<string> {
-  return consumeWithTimeout(input, init, (response) => response.text());
+export async function fetchText(
+  input: string,
+  init?: TimedRequestInit,
+  decode: (response: Response) => Promise<string> = (response) => response.text()
+): Promise<string> {
+  return consumeWithTimeout(input, init, decode);
 }
 
 export async function fetchJson<T>(input: string, init?: TimedRequestInit): Promise<T> {
