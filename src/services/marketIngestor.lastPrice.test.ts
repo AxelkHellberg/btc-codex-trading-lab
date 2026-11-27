@@ -73,4 +73,47 @@ describe("MarketIngestor last traded price", () => {
     expect(latest()).toMatchObject({ lastPrice: 104, markPrice: 108, bestBid: 106, bestAsk: 107 });
     await ingestor.stop();
   });
+
+  it.each([120, 80, 100])("preserves the traded candle range through supplemental mark %s", async (markPrice) => {
+    const { ingestor, latest, send, warn, client } = await setup();
+    try {
+      await send({ e: "kline", E: 1, k: { c: "100", h: "110", l: "90", v: "4", x: false } });
+      const traded = latest();
+      expect(traded).toMatchObject({ intradayHigh: 110, intradayLow: 90 });
+      await send({ e: "markPriceUpdate", E: 2, p: String(markPrice), i: "100", r: "0.002", T: 2000 });
+      client.getMarkPrice.mockResolvedValue({ markPrice, indexPrice: 100, fundingRate: 0.002, nextFundingTime: 2000 });
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(latest()).toMatchObject({ lastPrice: 100, markPrice, volume1m: 4 });
+      for (const key of ["intradayHigh", "intradayLow", "distanceFromIntradayHighPct", "distanceFromIntradayLowPct", "priceChangePct1m", "priceChangePct5m", "priceChangePct15m", "priceChangePct1h", "emaFast", "emaMedium", "trendStrengthPct", "volumeAcceleration"] as const) {
+        expect(latest()[key], key).toBe(traded[key]);
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      await ingestor.stop();
+    }
+  });
+
+  it("uses each new candle's range while retaining completed extremes", async () => {
+    const { ingestor, latest, send, client } = await setup();
+    try {
+      await send({ e: "kline", E: 1, k: { c: "100", h: "110", l: "90", v: "4", x: false } });
+      client.getMarkPrice.mockResolvedValue({ markPrice: 120, indexPrice: 119, fundingRate: 0.002, nextFundingTime: 2000 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(latest()).toMatchObject({ intradayHigh: 110, intradayLow: 90 });
+
+      await send({ e: "kline", E: 60_001, k: { c: "102", h: "106", l: "95", v: "3", x: false } });
+      expect(latest()).toMatchObject({ lastPrice: 102, intradayHigh: 106, intradayLow: 95 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(latest()).toMatchObject({ lastPrice: 102, markPrice: 120, intradayHigh: 106, intradayLow: 95 });
+
+      await send({ e: "kline", E: 120_000, k: { c: "103", h: "107", l: "94", v: "5", x: true } });
+      await send({ e: "kline", E: 120_001, k: { c: "104", h: "105", l: "96", v: "1", x: false } });
+      expect(latest()).toMatchObject({ lastPrice: 104, intradayHigh: 107, intradayLow: 94 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(latest()).toMatchObject({ lastPrice: 104, markPrice: 120, intradayHigh: 107, intradayLow: 94 });
+    } finally {
+      await ingestor.stop();
+    }
+  });
 });
