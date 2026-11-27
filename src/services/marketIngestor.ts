@@ -154,7 +154,6 @@ export class MarketIngestor {
     if ("p" in data && "i" in data && "r" in data) {
       next.markPrice = Number(data.p);
       next.indexPrice = Number(data.i);
-      next.lastPrice = Number(data.p);
       next.fundingRate = Number(data.r);
       next.nextFundingTime = Number(data.T);
       next.timestamp = data.E;
@@ -224,13 +223,9 @@ export class MarketIngestor {
         topTraderLongShortRatio: ratio,
         timestamp: Date.now()
       };
-      this.snapshot = this.applyDerivedMetrics(
-        next,
-        next.lastPrice,
-        next.volume1m,
-        Math.max(next.lastPrice, next.markPrice),
-        Math.min(next.lastPrice, next.markPrice)
-      );
+      // Supplemental data has no new traded candle. Preserve the price metrics
+      // from the latest kline, including its still-forming high and low.
+      this.snapshot = next;
       this.lastOpenInterest = openInterest;
       await this.callbacks.onMarket(this.snapshot);
       if (account) {
